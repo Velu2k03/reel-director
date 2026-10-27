@@ -291,8 +291,7 @@ def check_cap_and_unmet_surfaced():
     tmp = tempfile.mkdtemp(prefix="phase-b-qc-")
     missing = os.path.join(tmp, "gone.mp4")
     report = render.qc_report(
-        missing, captions=[{"scene": 0, "clean": True}],
-        captions_ok=True, director_decisions=entries,
+        missing, director_decisions=entries,
         unmet_criteria=log["unmet_criteria"], editorial_pass=False)
     assert report["editorial"]["editorial_pass"] is False, report
     assert report["editorial"]["unmet_criteria"] == \
@@ -301,8 +300,7 @@ def check_cap_and_unmet_surfaced():
                for d in report["decisions"]), report
     # And a clean run IS labelled passed.
     clean = render.qc_report(
-        missing, captions=[{"scene": 0, "clean": True}],
-        captions_ok=True, director_decisions=[], unmet_criteria=[],
+        missing, director_decisions=[], unmet_criteria=[],
         editorial_pass=True)
     assert clean["editorial"]["editorial_pass"] is True, clean
     print("MOCKED PASS: revision capped at 2 cycles, unmet criterion "
@@ -430,7 +428,7 @@ def check_spark_critique_and_revision_wiring():
     model_calls = []
     real_chat = meta_backend.chat
 
-    def fake_chat(prompt, model=None, max_tokens=512):
+    def fake_chat(prompt, model=None, max_tokens=512, api_key=None):
         model_calls.append(model)
         if "JSON list" in prompt:
             return "[]"

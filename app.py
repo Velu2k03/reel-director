@@ -38,8 +38,10 @@ import uuid
 
 from flask import Flask, jsonify, request, send_from_directory
 
-from meta_backend import (critique_scenes, draft_script, list_models,
-                          repair_critique, revise_scene, revise_with_note)
+import meta_backend
+from meta_backend import (critique_scenes, describe_visual,
+                          draft_script, list_models, repair_critique,
+                          revise_scene, revise_with_note)
 import director
 import render
 from meta_image import MODEL as IMAGE_MODEL
@@ -86,7 +88,7 @@ app = Flask(__name__)
 DEMO_PREVIEW_SCRIPT = [
     "Hook: the director does not film first. It plans first.",
     "An agent reads the goal, breaks it into scenes, and checks each one.",
-    "Script, visuals, voice, and captions are built as separate passes.",
+    "Script, visuals, and voice are built as separate passes.",
     "A QC gate reviews every scene before anything is assembled.",
     "The result is a finished video, directed end to end by the agent.",
 ]
@@ -346,12 +348,86 @@ def health():
 
 
 @app.get("/api/style")
-def style_default():
-    """The default visual style block (editable per render). The
-    default keeps the existing flat-vector robot-director look; it is
-    one option, never a required character or colour."""
-    return jsonify({"default": render.META_STYLE,
-                    "note": "Editable: send style with POST /api/video."})
+def style_options():
+    """Visual style presets and color themes (options, not text).
+
+    The brief panel renders these as pickers: six style presets
+    plus six color themes, each with a short name and a small
+    preview description. The flat-vector preset keeps the existing
+    robot-director look as one option, never a required character
+    or colour. Send the picked ids as style/color with
+    POST /api/script or POST /api/video; style_custom is an
+    optional short phrase only, never a paragraph."""
+    return jsonify({
+        "styles": [{"id": sid, "name": preset["name"],
+                    "blurb": preset["blurb"]}
+                   for sid, preset in render.STYLE_PRESETS.items()],
+        "colors": [{"id": cid, "name": theme["name"],
+                    "blurb": theme["blurb"],
+                    "swatch": theme["swatch"]}
+                   for cid, theme in render.COLOR_THEMES.items()],
+        "default_style": render.DEFAULT_STYLE,
+        "default_color": render.DEFAULT_COLOR,
+        "max_custom_phrase": render.MAX_CUSTOM_PHRASE,
+        "note": ("Pick style/color ids; send them with "
+                 "POST /api/script or POST /api/video."),
+    })
+
+
+def _parse_style_options(body):
+    """Validated (style_id, color_id, custom) from a request body.
+
+    style must be a preset id, color a theme id, style_custom a
+    short phrase at most MAX_CUSTOM_PHRASE characters. All three
+    are optional (None means the default). Returns
+    ((style, color, custom), None) or (None, (error_body, status)):
+    unknown ids and paragraph-length custom text fail with a clear
+    400 naming the valid options, never silently re-typed.
+    """
+    style = body.get("style")
+    color = body.get("color")
+    custom = body.get("style_custom")
+    if style is not None:
+        if not isinstance(style, str) or not style.strip():
+            return None, (jsonify(
+                {"error": "style must be a style option: %s"
+                          % sorted(render.STYLE_PRESETS)}), 400)
+        style = style.strip()
+        if style not in render.STYLE_PRESETS:
+            return None, (jsonify(
+                {"error": "unknown style %r: pick one of %s"
+                          % (style,
+                             sorted(render.STYLE_PRESETS))}), 400)
+    if color is not None:
+        if not isinstance(color, str) or not color.strip():
+            return None, (jsonify(
+                {"error": "color must be a color theme: %s"
+                          % sorted(render.COLOR_THEMES)}), 400)
+        color = color.strip()
+        if color not in render.COLOR_THEMES:
+            return None, (jsonify(
+                {"error": "unknown color theme %r: pick one of %s"
+                          % (color,
+                             sorted(render.COLOR_THEMES))}), 400)
+    if custom is not None:
+        if not isinstance(custom, str) or not custom.strip():
+            custom = None
+        else:
+            try:
+                render.resolve_custom_phrase(custom)
+            except ValueError as exc:
+                return None, (jsonify({"error": str(exc)}), 400)
+            custom = custom.strip()
+    return (style, color, custom), None
+
+
+def _style_labels(style_id, color_id):
+    """Display names for the recorded picks (defaults resolved)."""
+    style_name = (render.style_label(style_id)
+                  or render.style_label(render.DEFAULT_STYLE))
+    color_name = (render.color_label(color_id)
+                  or render.color_label(render.DEFAULT_COLOR))
+    return style_name, color_name
 
 
 @app.post("/api/key")
@@ -377,10 +453,11 @@ def _nonempty_lines(text, who):
     return lines
 
 
-def _live_script_lines(topic, api_key=None):
+def _live_script_lines(topic, api_key=None, scene_count=None,
+                       audience=None):
     """Spark draft, then Wonder revise with change note. Both must
-    succeed; any failure raises and fails the job. Returns
-    ([5 lines], change_note).
+    succeed; any failure raises and fails the script stage. Returns
+    ([lines], change_note).
 
     The key (pasted in-memory key or environment, via _api_key)
     is threaded into both model calls: a pasted key with no
@@ -388,10 +465,275 @@ def _live_script_lines(topic, api_key=None):
     raises its clear missing-key error, never a silent fallback.
     """
     key = api_key if api_key is not None else _api_key()
-    draft = draft_script(topic, api_key=key)
+    draft = draft_script(topic, api_key=key, scene_count=scene_count)
     _nonempty_lines(draft, "Spark")
-    final, note = revise_with_note(draft, topic, api_key=key)
+    final, note = revise_with_note(draft, topic, api_key=key,
+                                   scene_count=scene_count,
+                                   audience=audience)
     return _nonempty_lines(final, "Wonder"), note
+
+
+def _parse_visual_line(raw):
+    """Pull the VISUAL: line from a Spark visual description.
+
+    Returns the description or None when the response is unusable;
+    the caller retries once, then fails visibly instead of
+    inventing a visual.
+    """
+    for line in str(raw or "").splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith("visual:"):
+            visual = stripped.split(":", 1)[1].strip()
+            if visual:
+                return visual
+    return None
+
+
+def _visual_is_narration_copy(visual, narration):
+    """True when the visual merely repeats the narration line.
+
+    Compared on normalized text (case/whitespace folded, art
+    boilerplate stripped): a visual that IS the narration must be
+    rejected and regenerated, never silently used as the visual.
+    """
+    def _norm(text):
+        return " ".join(str(text or "").lower().split())
+
+    core = _norm(visual)
+    for prefix in ("flat vector illustration,", "flat vector illustration"):
+        if core.startswith(prefix):
+            core = core[len(prefix):].strip(" ,")
+            break
+    return bool(core) and core == _norm(narration)
+
+
+def _spark_visual_for_scene(narration, brief, api_key=None):
+    """One Spark visual description for a narration line.
+
+    Same Muse Spark model only (Meta-only rule): one retry when
+    Spark returns no VISUAL line or returns the narration as the
+    visual, then the real error propagates so the script stage
+    fails hard instead of silently using narration as the visual.
+    Returns the visual description.
+    """
+    key = api_key if api_key is not None else _api_key()
+    last = None
+    for _ in (1, 2):
+        try:
+            raw = describe_visual(brief.topic, brief.audience,
+                                  narration, api_key=key)
+        except Exception as exc:  # noqa: BLE001 - retried once
+            last = exc
+            continue
+        visual = _parse_visual_line(raw)
+        if visual is None:
+            last = RuntimeError(
+                "Spark visual description was unusable (missing "
+                "VISUAL: line) for narration %r" % (narration[:80],))
+            continue
+        if _visual_is_narration_copy(visual, narration):
+            last = RuntimeError(
+                "Spark returned the narration as the visual "
+                "description for %r: rejecting, never silently "
+                "using narration as the visual" % (narration[:80],))
+            continue
+        return visual
+    raise last
+
+
+def estimate_plan_duration(lines):
+    """Estimated total narration seconds for approved lines.
+
+    Uses the stated conservative rate (no measured voice yet) via
+    director.estimate_seconds. Returns (total_s, basis).
+    """
+    total = 0.0
+    basis = ""
+    for line in lines:
+        seconds, basis = director.estimate_seconds(line)
+        total += seconds
+    return round(total, 1), basis
+
+
+def duration_preflight(estimated_total_s, target_s):
+    """Pre-flight duration warning, or None when the estimate fits.
+
+    More than 30 percent over target warns with the estimated
+    total, the target, and the suggested fix (fewer scenes or a
+    longer target). Never silently renders past the target: the
+    caller must hold production until the user approves that
+    duration or fixes the target.
+    """
+    if not target_s or target_s <= 0:
+        return None
+    if estimated_total_s <= float(target_s) * (
+            1.0 + director.DURATION_TOLERANCE):
+        return None
+    return {
+        "over_target": True,
+        "estimated_total_s": estimated_total_s,
+        "target_s": float(target_s),
+        "warning": ("estimated narration total %.1fs is more than "
+                    "%d%% over the %.1fs target; the finished video "
+                    "will run long" % (
+                        estimated_total_s,
+                        int(director.DURATION_TOLERANCE * 100),
+                        float(target_s))),
+        "suggestion": ("approve this duration, use fewer scenes, "
+                       "or set a longer target"),
+    }
+
+
+def build_script_plan(topic, audience=None, target_duration_s=None,
+                      scene_count=None, api_key=None):
+    """Full script stage: draft, Wonder revise, Spark visuals,
+    director critique and revision. No images, no voice, no
+    assembly: this stops at the approvable plan.
+
+    Returns a payload dict with brief, script lines, scenes (each
+    with narration, visual_prompt, revision status, and
+    before/after), director (decisions log with grouped attempts),
+    unmet_criteria, editorial_pass, revision_note, and
+    duration_estimate. Raises on any model failure: a broken plan
+    never proceeds to paid media.
+    """
+    key = api_key if api_key is not None else _api_key()
+    count = meta_backend._scene_count_or_default(
+        scene_count)
+    lines, note = _live_script_lines(topic, api_key=key,
+                                     scene_count=count,
+                                     audience=audience)
+    if len(lines) != count:
+        raise RuntimeError(
+            "script stage expected %d lines but Wonder returned %d: "
+            "rejecting the script instead of planning from a short "
+            "script" % (count, len(lines)))
+    brief = director.make_brief(
+        topic, audience=audience,
+        target_duration_s=target_duration_s,
+        scene_count=len(lines))
+    visuals = [_spark_visual_for_scene(line, brief, api_key=key)
+               for line in lines]
+    raw = [{"id": "scene-%d" % (i + 1), "narration": line,
+            "visual_prompt": visual}
+           for i, (line, visual) in enumerate(zip(lines, visuals))]
+    scenes = director.validate_scene_plan(raw)
+    each = brief.target_duration_s / len(scenes)
+    for scene in scenes:
+        scene["intended_duration_s"] = round(each, 2)
+
+    def _script_critique(brief_arg, plan_scenes, measured_wps=None):
+        return director.combined_critique(
+            brief_arg, plan_scenes,
+            spark_critique_fn=lambda b, s, measured_wps=None: (
+                _spark_critique_raw(b, s, measured_wps=measured_wps,
+                                    api_key=key)),
+            measured_wps=measured_wps)
+
+    def _script_revise(scene_arg, reasons_arg, brief_arg):
+        return _spark_revise_scene(scene_arg, reasons_arg, brief_arg,
+                                   api_key=key)
+
+    scenes, director_log = director.revise_loop(
+        brief, scenes, critique_fn=_script_critique,
+        revise_scene_fn=_script_revise)
+    failed = [a for a in director_log.get("attempts", [])
+              if a.get("status") == "failed"]
+    if failed:
+        first = failed[0]
+        raise RuntimeError(
+            "director Spark revision failed for %s (%s): %s"
+            % (first["scene_id"], ", ".join(first["criteria"]),
+               first.get("error", "unknown error")))
+    estimated_total_s, basis = estimate_plan_duration(
+        [s["narration"] for s in scenes])
+    return {
+        "brief": {"topic": brief.topic,
+                  "audience": brief.audience,
+                  "target_duration_s": brief.target_duration_s},
+        "script": [s["narration"] for s in scenes],
+        "visuals": [s["visual_prompt"] for s in scenes],
+        "scenes": scenes,
+        "director": director_log,
+        "unmet_criteria": director_log.get("unmet_criteria", []),
+        "editorial_pass": director_log.get("editorial_pass", False),
+        "revision_note": note,
+        "duration_estimate": {
+            "estimated_total_s": estimated_total_s,
+            "target_s": brief.target_duration_s,
+            "estimate_basis": basis,
+            "preflight": duration_preflight(
+                estimated_total_s, brief.target_duration_s),
+        },
+    }
+
+
+def _script_job_record(job_id, payload, style, aspect_ratio, width,
+                       height, target_explicit, color=None,
+                       style_custom=None):
+    """Waiting-for-approval job record: the approved-to-be plan with
+    script and director review done, production waiting, and no
+    media on disk yet. The picked style preset and color theme are
+    recorded here so a changed selection before approval changes
+    the next job."""
+    records = build_scene_records(payload["script"], style=style,
+                                  color=color,
+                                  style_custom=style_custom)
+    style_name, color_name = _style_labels(style, color)
+    last_attempt = {}
+    for attempt in payload["director"].get("attempts", []):
+        last_attempt[attempt["scene_id"]] = attempt
+    unmet_by_scene = {}
+    for unmet in payload.get("unmet_criteria", []):
+        unmet_by_scene.setdefault(
+            unmet["scene_id"], []).append(unmet["criterion"])
+    for rec, scene in zip(records, payload["scenes"]):
+        rec["scene_id"] = scene["id"]
+        rec["visual_prompt"] = scene["visual_prompt"]
+        rec["revision_status"] = scene["revision_status"]
+        attempt = last_attempt.get(scene["id"])
+        if attempt:
+            rec["revision_criteria"] = list(attempt["criteria"])
+            rec["before_narration"] = attempt["before_narration"]
+            rec["after_narration"] = attempt["after_narration"]
+            rec["before_visual"] = attempt["before_visual"]
+            rec["after_visual"] = attempt["after_visual"]
+        elif scene["id"] in unmet_by_scene:
+            rec["revision_criteria"] = unmet_by_scene[scene["id"]]
+    now = _now()
+    return {
+        "id": job_id, "topic": payload["brief"]["topic"],
+        "status": "waiting_approval",
+        "stages": {"script": "done", "revise": "done",
+                   "scenes": "waiting", "sam": "waiting",
+                   "voice": "waiting", "assemble": "waiting",
+                   "qc": "waiting"},
+        "script": list(payload["script"]),
+        "visuals": list(payload["visuals"]),
+        "mode": "live",
+        "scenes": records,
+        "video": None, "qc": None, "error": None,
+        "revision_note": payload.get("revision_note"),
+        "brief": dict(payload["brief"], aspect_ratio=aspect_ratio,
+                      width=width, height=height,
+                      target_explicit=target_explicit),
+        "director": payload["director"],
+        "unmet_criteria": list(payload.get("unmet_criteria", [])),
+        "editorial_pass": payload.get("editorial_pass", False),
+        "duration_estimate": payload["duration_estimate"],
+        "style": style,
+        "color": color,
+        "style_custom": style_custom,
+        "style_name": style_name,
+        "color_name": color_name,
+        "aspect_ratio": aspect_ratio,
+        "width": width, "height": height,
+        "out_dir": os.path.join(VIDEOS_DIR, job_id),
+        "created_at": now, "started_at": now,
+        "updated_at": now, "finished_at": None,
+        "cancel_requested": False,
+        "retries": 0, "last_error": None,
+    }
 
 
 @app.post("/api/script")
@@ -403,11 +745,87 @@ def script():
     if not _live_mode():
         return jsonify({"script": DEMO_PREVIEW_SCRIPT, "mode": "demo-preview",
                         "note": DEMO_PREVIEW_NOTE})
-    lines, note = _live_script_lines(topic, api_key=_api_key())
-    return jsonify({"script": lines, "mode": "live", "revision_note": note})
+    audience = body.get("audience")
+    if audience is not None:
+        if not isinstance(audience, str) or not audience.strip():
+            return jsonify(
+                {"error": "audience must be a non-empty string"}), 400
+        audience = audience.strip()
+    target_duration_s = body.get("target_duration_s")
+    target_explicit = target_duration_s is not None
+    if target_explicit:
+        try:
+            target_duration_s = float(target_duration_s)
+        except (TypeError, ValueError):
+            return jsonify(
+                {"error": "target_duration_s must be a positive "
+                          "number"}), 400
+        if target_duration_s <= 0:
+            return jsonify(
+                {"error": "target_duration_s must be a positive "
+                          "number"}), 400
+    scene_count = body.get("scene_count", 5)
+    try:
+        count = meta_backend._scene_count_or_default(
+            scene_count)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    parsed, err = _parse_style_options(body)
+    if err:
+        return err
+    style, color, style_custom = parsed
+    aspect_ratio = body.get("aspect_ratio", render.DEFAULT_ASPECT)
+    if not isinstance(aspect_ratio, str):
+        return jsonify(
+            {"error": "aspect_ratio must be one of %s"
+                      % sorted(render.ASPECTS)}), 400
+    aspect_ratio = aspect_ratio.strip() or render.DEFAULT_ASPECT
+    try:
+        aspect_w, aspect_h = render.dims_for_aspect(aspect_ratio)
+    except ValueError:
+        return jsonify(
+            {"error": "aspect_ratio must be one of %s"
+                      % sorted(render.ASPECTS)}), 400
+    try:
+        payload = build_script_plan(
+            topic, audience=audience,
+            target_duration_s=target_duration_s,
+            scene_count=count, api_key=_api_key())
+    except Exception as exc:  # noqa: BLE001 - sanitized, never raw
+        return jsonify({"error": _safe_error(exc)}), 502
+    job_id = uuid.uuid4().hex[:12]
+    record = _script_job_record(
+        job_id, payload, style, aspect_ratio, aspect_w, aspect_h,
+        target_explicit, color=color, style_custom=style_custom)
+    with JOBS_LOCK:
+        JOBS[job_id] = record
+    _save_job_by_id(job_id)
+    return jsonify({
+        "job_id": job_id,
+        "state": "waiting_approval",
+        "mode": "live",
+        "message": ("Waiting for your approval: review the script "
+                    "and visuals, then produce. No images, no voice, "
+                    "no video have been made."),
+        "script": payload["script"],
+        "visuals": payload["visuals"],
+        "scenes": payload["scenes"],
+        "style": style,
+        "color": color,
+        "style_custom": style_custom,
+        "brief": record["brief"],
+        "director": payload["director"],
+        "grouped_decisions": director.grouped_attempts(
+            payload["director"].get("attempts", [])),
+        "unmet_criteria": payload["unmet_criteria"],
+        "editorial_pass": payload["editorial_pass"],
+        "revision_note": payload["revision_note"],
+        "duration_estimate": payload["duration_estimate"],
+    })
 
 
-def build_scene_records(lines, style=None):
+def build_scene_records(lines, style=None, color=None,
+                        style_custom=None):
     """One storyboard record per narration line, for any scene count.
 
     Each record names the actual image provider (muse-image-1.0) and
@@ -415,8 +833,13 @@ def build_scene_records(lines, style=None):
     SAM notes fill in as the render reaches each scene. Director
     revision fields (scene_id, visual_prompt, revision_status,
     before/after, criteria) fill in when the Phase B director loop
-    runs; they stay at their planned defaults otherwise.
+    runs; they stay at their planned defaults otherwise. The picked
+    style preset id, color theme id, optional short custom phrase,
+    and their display names travel on every record so the image
+    prompt for every scene uses the same selected style and color
+    and the storyboard shows them, not just CSS.
     """
+    style_name, color_name = _style_labels(style, color)
     records = []
     for i, line in enumerate(lines):
         records.append({
@@ -426,6 +849,10 @@ def build_scene_records(lines, style=None):
             "visual_prompt": "flat vector illustration, " + line,
             "rendered_narration": None,
             "style": style,
+            "color": color,
+            "style_custom": style_custom,
+            "style_name": style_name,
+            "color_name": color_name,
             "image": None,
             "duration": None,
             "status": "waiting",
@@ -576,9 +1003,23 @@ def _scene_event(job_id, index, event, info):
     _save_job_by_id(job_id)
 
 
-def _run_job(job_id, topic, script_lines=None, style=None,
+def _run_job(job_id, topic, approved, style=None,
                audience=None, target_duration_s=None,
-               aspect_ratio=None):
+               aspect_ratio=None, director_log=None,
+               revision_note=None, color=None, style_custom=None):
+    """Production worker: approved plan -> media. No text calls.
+
+    ``approved`` is a list of {narration, visual} dicts from the
+    approval gate (/api/video). Script and director review already
+    ran in /api/script, so stages script+revise are marked done
+    immediately with no work and no model calls -- they are not
+    counted again as production work. Production runs Images ->
+    Scene check -> Voice -> Assemble -> Checks through
+    render.run_pipeline with real per-stage and per-scene
+    progress. The approved lines are used exactly: nothing here
+    drafts, revises, critiques, or re-revises any text, so the
+    plan lines and the rendered lines are identical.
+    """
     aspect = str(aspect_ratio or render.DEFAULT_ASPECT).strip()
     width, height = render.dims_for_aspect(aspect)
     job = JOBS[job_id]
@@ -602,114 +1043,90 @@ def _run_job(job_id, topic, script_lines=None, style=None,
                 raise _JobCancelled()
 
     try:
-        if script_lines:
-            # Draft + revise already ran live inside /api/script.
-            lines = script_lines
-            note = ""
-            mark("script", "done")
-            mark("revise", "working")
-        else:
-            mark("script", "working")
-            draft = draft_script(topic, api_key=_api_key())
-            _nonempty_lines(draft, "Spark")
-            mark("script", "done")
-            mark("revise", "working")
-            final_text, note = revise_with_note(
-                draft, topic, api_key=_api_key())
-            lines = _nonempty_lines(final_text, "Wonder")
-        # Phase B bounded director loop, inside the revise stage:
-        # structured plan -> rule-based critique floor plus Muse
-        # Spark model critique -> targeted Spark revision of flagged
-        # scenes only (max 2 cycles), then media generation. A Spark
-        # critique or revision failure here fails the job with the
-        # real error (Meta-only fail-hard); a malformed Spark
-        # critique is rejected, never silently treated as rule-only.
-        # Unmet criteria after the cap are recorded and surfaced,
-        # never silently passed.
-        brief = director.make_brief(
-            topic, audience=audience,
-            target_duration_s=target_duration_s,
-            scene_count=len(lines))
-        plan = director.build_plan(brief, lines)
-
-        def _production_critique(brief_arg, scenes,
-                                 measured_wps=None):
-            return director.combined_critique(
-                brief_arg, scenes,
-                spark_critique_fn=lambda b, s, measured_wps=None: (
-                    _spark_critique_raw(b, s, measured_wps=measured_wps,
-                                        api_key=_api_key())),
-                measured_wps=measured_wps)
-
-        def _production_revise(scene_arg, reasons_arg, brief_arg):
-            return _spark_revise_scene(scene_arg, reasons_arg,
-                                       brief_arg, api_key=_api_key())
-
-        plan, director_log = director.revise_loop(
-            brief, plan, critique_fn=_production_critique,
-            revise_scene_fn=_production_revise)
-        failed = [a for a in director_log.get("attempts", [])
-                  if a.get("status") == "failed"]
-        if failed:
-            first = failed[0]
+        if not approved:
             raise RuntimeError(
-                "director Spark revision failed for %s (%s): %s"
-                % (first["scene_id"],
-                   ", ".join(first["criteria"]),
-                   first.get("error", "unknown error")))
+                "production needs the approved plan: plan scenes "
+                "first with POST /api/script, review them, then "
+                "produce. Production never re-drafts.")
+        # Script + director review are already done (pre-approval):
+        # marked done, never re-run here.
+        mark("script", "done")
         mark("revise", "done")
-        job["script"] = [s["narration"] for s in plan]
-        job["revision_note"] = note
-        job["brief"] = {"topic": brief.topic,
-                        "audience": brief.audience,
-                        "target_duration_s": brief.target_duration_s,
+        job["script"] = [a["narration"] for a in approved]
+        job["visuals"] = [a["visual"] for a in approved]
+        job["revision_note"] = revision_note
+        job["brief"] = {"topic": topic, "audience": audience,
+                        "target_duration_s": target_duration_s,
                         "aspect_ratio": aspect,
                         "width": width, "height": height}
         job["director"] = director_log
+        style_name, color_name = _style_labels(style, color)
+        job["style"] = style
+        job["color"] = color
+        job["style_custom"] = style_custom
+        job["style_name"] = style_name
+        job["color_name"] = color_name
         records = build_scene_records(
-            [s["narration"] for s in plan], style=style)
-        last_attempt = {}
-        for attempt in director_log.get("attempts", []):
-            last_attempt[attempt["scene_id"]] = attempt
-        unmet_by_scene = {}
-        for unmet in director_log.get("unmet_criteria", []):
-            unmet_by_scene.setdefault(
-                unmet["scene_id"], []).append(unmet["criterion"])
-        for rec, scene in zip(records, plan):
-            rec["scene_id"] = scene["id"]
-            rec["visual_prompt"] = scene["visual_prompt"]
-            rec["revision_status"] = scene["revision_status"]
-            attempt = last_attempt.get(scene["id"])
+            [a["narration"] for a in approved], style=style,
+            color=color, style_custom=style_custom)
+        if director_log:
+            last_attempt = {}
+            for attempt in director_log.get("attempts", []):
+                last_attempt[attempt["scene_id"]] = attempt
+            unmet_by_scene = {}
+            for unmet in director_log.get("unmet_criteria", []):
+                unmet_by_scene.setdefault(
+                    unmet["scene_id"], []).append(unmet["criterion"])
+        else:
+            last_attempt = {}
+            unmet_by_scene = {}
+        for pos, (rec, item) in enumerate(zip(records, approved)):
+            sid = "scene-%d" % (pos + 1)
+            rec["scene_id"] = sid
+            rec["visual_prompt"] = item["visual"]
+            attempt = last_attempt.get(sid)
             if attempt:
+                rec["revision_status"] = (
+                    "approved (%s)" % attempt["status"]
+                    if attempt["status"] in
+                    director.REVISED_STATUSES + ("unchanged",)
+                    else attempt["status"])
                 rec["revision_criteria"] = list(attempt["criteria"])
                 rec["before_narration"] = attempt["before_narration"]
                 rec["after_narration"] = attempt["after_narration"]
                 rec["before_visual"] = attempt["before_visual"]
                 rec["after_visual"] = attempt["after_visual"]
-            elif scene["id"] in unmet_by_scene:
-                rec["revision_criteria"] = unmet_by_scene[scene["id"]]
+            elif sid in unmet_by_scene:
+                rec["revision_status"] = "approved (unmet)"
+                rec["revision_criteria"] = unmet_by_scene[sid]
+            else:
+                rec["revision_status"] = "approved"
         job["scenes"] = records
         scenes = []
-        for scene in plan:
-            visual = scene["visual_prompt"]
+        for pos, item in enumerate(approved):
+            sid = "scene-%d" % (pos + 1)
+            visual = item["visual"]
             try:
                 subject = director.derive_sam_concept(
-                    {"id": scene["id"],
+                    {"id": sid,
                      "visual_prompt": visual})["visual_subject"]
             except ValueError:
                 # Fix the concept from the visual prompt first: fall
                 # back to the visual text itself, which sam_check
                 # re-derives (and rejects loudly if truly unusable).
                 subject = visual
-            scenes.append({"id": scene["id"],
-                           "narration": scene["narration"],
+            scenes.append({"id": sid,
+                           "narration": item["narration"],
                            "visual": visual,
                            "visual_prompt": visual,
                            "subject": subject,
-                           "style": style})
+                           "style": style,
+                           "color": color,
+                           "style_custom": style_custom})
         final, report = render.run_pipeline(
             scenes, topic, job["out_dir"], on_stage=mark,
-            api_key=_api_key(), revision_note=note or None,
+            api_key=_api_key(),
+            revision_note=revision_note or None,
             on_scene=scene_event, director_log=director_log,
             aspect_ratio=aspect)
         with JOBS_LOCK:
@@ -751,8 +1168,83 @@ def _run_job(job_id, topic, script_lines=None, style=None,
         _save_job_by_id(job_id)
 
 
+def _approved_plan_from_body(body):
+    """Approved (narration, visual) pairs from a produce call.
+
+    Accepts either {"scenes": [{narration, visual_prompt}]} or
+    {"script": [...], "visuals": [...]} (same length). Returns
+    ([{narration, visual}], None) or (None, (error_body, status)):
+    without approved lines AND approved visuals production
+    refuses with a clear error and never silently re-drafts.
+    """
+    raw_scenes = body.get("scenes")
+    if raw_scenes is not None:
+        if not isinstance(raw_scenes, list) or not raw_scenes:
+            return None, (jsonify(
+                {"error": "scenes must be a non-empty list of "
+                          "approved {narration, visual_prompt} "
+                          "objects"}), 400)
+        pairs = []
+        for pos, item in enumerate(raw_scenes):
+            if not isinstance(item, dict):
+                return None, (jsonify(
+                    {"error": "scene at position %d is not an "
+                              "object: produce only runs on the "
+                              "approved plan" % pos}), 400)
+            narration = item.get("narration")
+            visual = item.get("visual_prompt", item.get("visual"))
+            if (not isinstance(narration, str) or not narration.strip()
+                    or not isinstance(visual, str) or not visual.strip()):
+                return None, (jsonify(
+                    {"error": "scene at position %d needs approved "
+                              "narration and an approved visual "
+                              "prompt: produce only runs on the "
+                              "approved plan" % pos}), 400)
+            pairs.append({"narration": narration.strip(),
+                          "visual": visual.strip()})
+        return pairs, None
+    script_lines = body.get("script")
+    visuals = body.get("visuals")
+    if script_lines is None or visuals is None:
+        return None, (jsonify(
+            {"error": "approved narration lines and approved visual "
+                      "prompts are required: plan scenes first with "
+                      "POST /api/script, review them, then produce. "
+                      "Production never re-drafts."}), 400)
+    if (not isinstance(script_lines, list) or not script_lines
+            or not all(isinstance(s, str) and s.strip()
+                       for s in script_lines)):
+        return None, (jsonify(
+            {"error": "script must be a non-empty string list"}), 400)
+    if (not isinstance(visuals, list)
+            or len(visuals) != len(script_lines)
+            or not all(isinstance(v, str) and v.strip()
+                       for v in visuals)):
+        return None, (jsonify(
+            {"error": "visuals must be a non-empty string list the "
+                      "same length as script: one approved visual "
+                      "prompt per approved line"}), 400)
+    script_lines = [s.strip() for s in script_lines]
+    if script_lines == DEMO_PREVIEW_SCRIPT:
+        return None, (jsonify(
+            {"error": "demo-preview scripts are never rendered. "
+                      "Plan live scenes first with POST /api/script."}
+        ), 400)
+    return ([{"narration": n, "visual": v.strip()}
+             for n, v in zip(script_lines, visuals)], None)
+
+
 @app.post("/api/video")
 def video():
+    """Approval gate: produce ONLY from the approved plan.
+
+    Requires approved narration lines plus approved visual
+    prompts (nothing renders from a bare topic). No draft, no
+    Wonder revise, no critique, and no Spark revision run here:
+    an edit made before pressing Produce is the approved version,
+    used exactly. Without approved lines this fails with a clear
+    error and never silently re-drafts.
+    """
     body = request.get_json(silent=True) or {}
     topic = str(body.get("topic", "")).strip()
     if not topic:
@@ -760,24 +1252,13 @@ def video():
     if not _live_mode():
         return jsonify({"error": "No Meta API key found. "
                                  "Paste your key above."}), 503
-    script_lines = body.get("script")
-    if script_lines is not None:
-        if (not isinstance(script_lines, list)
-                or not script_lines
-                or not all(isinstance(s, str) and s.strip()
-                           for s in script_lines)):
-            return jsonify({"error": "script must be a non-empty string list"}), 400
-        if [s.strip() for s in script_lines] == DEMO_PREVIEW_SCRIPT:
-            return jsonify({"error": "demo-preview scripts are never "
-                                     "rendered. Set META_API_KEY for live "
-                                     "script first."}), 400
-        script_lines = [s.strip() for s in script_lines]
-    style = body.get("style")
-    if style is not None:
-        if not isinstance(style, str) or not style.strip():
-            return jsonify(
-                {"error": "style must be a non-empty string"}), 400
-        style = style.strip()
+    approved, err = _approved_plan_from_body(body)
+    if err:
+        return err
+    parsed, err = _parse_style_options(body)
+    if err:
+        return err
+    style, color, style_custom = parsed
     audience = body.get("audience")
     if audience is not None:
         if not isinstance(audience, str) or not audience.strip():
@@ -808,6 +1289,64 @@ def video():
         return jsonify(
             {"error": "aspect_ratio must be one of %s"
                       % sorted(render.ASPECTS)}), 400
+    # Optional link back to the waiting-approval plan this approval
+    # came from: its director log travels into production QC, and
+    # the plan is marked approved so it cannot be approved twice.
+    script_job_id = body.get("script_job_id")
+    linked_log = None
+    linked_note = None
+    if script_job_id is not None:
+        with JOBS_LOCK:
+            script_job = JOBS.get(script_job_id)
+        if script_job is None:
+            return jsonify({"error": "unknown script job: %s"
+                                     % (script_job_id,)}), 404
+        if script_job.get("status") != "waiting_approval":
+            return jsonify({"error": "script job %s is %s, not "
+                                     "waiting for approval: plan "
+                                     "scenes first, then produce "
+                                     "once" % (
+                                         script_job_id,
+                                         script_job.get("status"))}), 409
+        linked_log = script_job.get("director")
+        linked_note = script_job.get("revision_note")
+        # A changed selection before approval changes the next job:
+        # explicit picks win, otherwise the linked plan's picks
+        # carry over. A job already approved keeps its own picks.
+        if style is None:
+            style = script_job.get("style")
+        if color is None:
+            color = script_job.get("color")
+        if style_custom is None:
+            style_custom = script_job.get("style_custom")
+    # Pre-flight duration check on the APPROVED lines, before any
+    # paid media call: an explicit target more than 30 percent
+    # below the estimate holds production until the user approves
+    # that duration (duration_ack) or fixes the target. Never
+    # silently renders past the target.
+    gate_target = target_duration_s
+    if gate_target is None and script_job_id is not None:
+        with JOBS_LOCK:
+            script_job = JOBS.get(script_job_id)
+            brief = (script_job.get("brief") or {}) if script_job else {}
+        if brief.get("target_explicit"):
+            gate_target = brief.get("target_duration_s")
+    estimated_total_s, _basis = estimate_plan_duration(
+        [a["narration"] for a in approved])
+    preflight = duration_preflight(estimated_total_s, gate_target)
+    if preflight and not body.get("duration_ack"):
+        return jsonify({
+            "error": ("estimated narration total %.1fs is more than "
+                      "%d%% over the %.1fs target: approve this "
+                      "duration or fix the target before producing"
+                      % (preflight["estimated_total_s"],
+                         int(director.DURATION_TOLERANCE * 100),
+                         preflight["target_s"])),
+            "needs_duration_ack": True,
+            "estimated_total_s": preflight["estimated_total_s"],
+            "target_s": preflight["target_s"],
+            "suggestion": preflight["suggestion"],
+        }), 409
     with JOBS_LOCK:
         for job in JOBS.values():
             if job["status"] in ("queued", "running"):
@@ -816,19 +1355,38 @@ def video():
         job_id = uuid.uuid4().hex[:12]
         out_dir = os.path.join(VIDEOS_DIR, job_id)
         now = _now()
+        if script_job_id is not None:
+            linked = JOBS.get(script_job_id)
+            if linked is not None and linked.get("status") == \
+                    "waiting_approval":
+                linked["status"] = "approved"
+                linked["finished_at"] = now
+                linked["updated_at"] = now
+        style_name, color_name = _style_labels(style, color)
         JOBS[job_id] = {
             "id": job_id, "topic": topic, "status": "queued",
             "stages": {k: "waiting" for k in STAGE_KEYS},
-            "script": [], "mode": "live",
-            "scenes": build_scene_records(script_lines or [], style=style),
+            "script": [a["narration"] for a in approved],
+            "visuals": [a["visual"] for a in approved],
+            "mode": "live",
+            "scenes": build_scene_records(
+                [a["narration"] for a in approved], style=style,
+                color=color, style_custom=style_custom),
             "video": None, "qc": None, "error": None,
-            "revision_note": None,
+            "revision_note": linked_note,
             "brief": {"topic": topic, "audience": audience,
                       "target_duration_s": target_duration_s,
                       "aspect_ratio": aspect_ratio,
                       "width": aspect_w, "height": aspect_h},
-            "director": None,
+            "director": linked_log,
+            "script_job_id": script_job_id,
+            "duration_ack": bool(body.get("duration_ack")),
+            "estimated_total_s": estimated_total_s,
             "style": style,
+            "color": color,
+            "style_custom": style_custom,
+            "style_name": style_name,
+            "color_name": color_name,
             "aspect_ratio": aspect_ratio,
             "width": aspect_w, "height": aspect_h,
             "out_dir": out_dir,
@@ -837,10 +1395,19 @@ def video():
             "cancel_requested": False,
             "retries": 0, "last_error": None,
         }
+    with JOBS_LOCK:
+        for rec, item in zip(JOBS[job_id]["scenes"], approved):
+            rec["visual_prompt"] = item["visual"]
+            rec["revision_status"] = "approved"
+    if script_job_id is not None:
+        _save_job_by_id(script_job_id)
+    _save_job_by_id(job_id)
     thread = threading.Thread(target=_run_job,
-                              args=(job_id, topic, script_lines, style,
+                              args=(job_id, topic, approved, style,
                                     audience, target_duration_s,
-                                    aspect_ratio),
+                                    aspect_ratio, linked_log,
+                                    linked_note, color,
+                                    style_custom),
                               daemon=True)
     with JOBS_LOCK:
         JOBS[job_id]["status"] = "running"
@@ -929,13 +1496,31 @@ def retry_job(job_id):
                 return jsonify(
                     {"error": "a render is already running"}), 409
         brief = job.get("brief") or {}
-        lines = list(job.get("script") or [])
-        if not lines:
-            lines = [s.get("narration", "") for s in job.get("scenes", [])
-                     if s.get("narration")]
-        script_lines = [s for s in lines if s] or None
+        # Retry re-renders from the STORED approved plan: narration
+        # plus visual prompt per scene, exactly as approved. No
+        # draft, no critique, no re-revision runs again.
+        approved = []
+        for rec in job.get("scenes", []):
+            narration = (rec.get("narration") or "").strip()
+            visual = (rec.get("visual_prompt") or "").strip()
+            if narration and visual:
+                approved.append({"narration": narration,
+                                 "visual": visual})
+        if not approved:
+            lines = [s for s in (job.get("script") or []) if s]
+            visuals = [v for v in (job.get("visuals") or []) if v]
+            if len(lines) == len(visuals):
+                approved = [{"narration": n, "visual": v}
+                            for n, v in zip(lines, visuals)]
+        if not approved:
+            return jsonify({"error": "this job has no stored approved "
+                                     "plan to retry from"}), 409
+        linked_log = job.get("director")
+        linked_note = job.get("revision_note")
         topic = job.get("topic", "")
         style = job.get("style")
+        color = job.get("color")
+        style_custom = job.get("style_custom")
         audience = brief.get("audience")
         target = brief.get("target_duration_s")
         aspect = job.get("aspect_ratio") or render.DEFAULT_ASPECT
@@ -963,13 +1548,16 @@ def retry_job(job_id):
     _save_job_by_id(job_id)
     thread = threading.Thread(
         target=_run_job,
-        args=(job_id, topic, script_lines, style, audience, target,
-              aspect),
+        args=(job_id, topic, approved, style, audience, target,
+              aspect, linked_log, linked_note, color,
+              style_custom),
         daemon=True)
     thread.start()
     return jsonify({"job_id": job_id,
-                    "note": "full re-run from the stored plan: stages "
-                            "restart from the beginning"})
+                    "note": "full re-run from the stored approved plan "
+                            "(narration and visuals reused exactly, no "
+                            "re-revision): stages restart from the "
+                            "beginning"})
 
 
 def _job_scene(job_id, index):
@@ -987,39 +1575,81 @@ def _job_scene(job_id, index):
 
 @app.patch("/api/job/<job_id>/scene/<int:index>")
 def edit_scene(job_id, index):
-    """Edit one scene's narration (and style).
+    """Edit one scene's narration, visual, style preset, color theme,
+    or short custom phrase.
 
     Before a render runs (queued job) this updates the plan the render
     will use. After a render (done or error) the scene is marked dirty
-    with its reason, so old audio and captions are never silently left
-    attached to new narration. While a render is running, edits are
-    refused (409): the in-flight render owns the plan.
+    with its reason, so old audio is never silently left attached to
+    new narration. While a render is running, edits are refused (409):
+    the in-flight render owns the plan. style must be a preset id,
+    color a theme id, style_custom a short phrase: unknown ids and
+    paragraph-length custom text fail with a clear 400.
     """
     job, scene_or_resp = _job_scene(job_id, index)
     if job is None:
         return scene_or_resp
     body = request.get_json(silent=True) or {}
     narration = body.get("narration")
-    style = body.get("style")
-    if narration is None and style is None:
-        return jsonify({"error": "nothing to update: send narration "
-                                 "and/or style"}), 400
+    visual = body.get("visual_prompt", body.get("visual"))
+    parsed, err = _parse_style_options(body)
+    if err:
+        return err
+    style, color, style_custom = parsed
+    if narration is None and visual is None and style is None \
+            and color is None and style_custom is None:
+        return jsonify({"error": "nothing to update: send narration, "
+                                 "visual_prompt, style, color, and/or "
+                                 "style_custom"}), 400
     if narration is not None and (
             not isinstance(narration, str) or not narration.strip()):
         return jsonify({"error": "narration must be a non-empty string"}), 400
-    if style is not None and (
-            not isinstance(style, str) or not style.strip()):
-        return jsonify({"error": "style must be a non-empty string"}), 400
+    if visual is not None and (
+            not isinstance(visual, str) or not visual.strip()):
+        return jsonify({"error": "visual_prompt must be a non-empty "
+                                 "string"}), 400
     with JOBS_LOCK:
         if job["status"] == "running":
             return jsonify({"error": "render is running: wait until it "
                                      "finishes, then edit the scene"}), 409
-        if job["status"] == "queued":
+        look_changed = False
+        if style is not None:
+            scene_or_resp["style"] = style
+            look_changed = True
+        if color is not None:
+            scene_or_resp["color"] = color
+            look_changed = True
+        if style_custom is not None:
+            scene_or_resp["style_custom"] = style_custom
+            look_changed = True
+        if look_changed:
+            style_name, color_name = _style_labels(
+                scene_or_resp.get("style"), scene_or_resp.get("color"))
+            scene_or_resp["style_name"] = style_name
+            scene_or_resp["color_name"] = color_name
+        if job["status"] == "waiting_approval":
+            # Pre-approval plan edit: this IS the approved version
+            # once Produce is pressed. Clean update, never dirty.
+            if narration is not None:
+                scene_or_resp["narration"] = narration.strip()
+                try:
+                    job["script"][index] = narration.strip()
+                except (IndexError, TypeError, KeyError):
+                    pass
+            if visual is not None:
+                scene_or_resp["visual_prompt"] = visual.strip()
+                try:
+                    job["visuals"][index] = visual.strip()
+                except (IndexError, TypeError, KeyError):
+                    pass
+            scene_or_resp["dirty"] = False
+            scene_or_resp["dirty_reason"] = None
+            resp = jsonify({"scene": scene_or_resp,
+                            "plan": "updated (still waiting for approval)"})
+        elif job["status"] == "queued":
             # Queued: update the plan before the render starts.
             if narration is not None:
                 scene_or_resp["narration"] = narration.strip()
-            if style is not None:
-                scene_or_resp["style"] = style.strip()
             scene_or_resp["dirty"] = False
             scene_or_resp["dirty_reason"] = None
             resp = jsonify({"scene": scene_or_resp, "plan": "updated"})
@@ -1031,9 +1661,9 @@ def edit_scene(job_id, index):
                         and new_text != scene_or_resp["rendered_narration"]):
                     scene_or_resp["dirty"] = True
                     scene_or_resp["dirty_reason"] = (
-                        "narration edited after render: audio and "
-                        "captions still match the previous text; "
-                        "regenerate or re-render before publishing")
+                        "narration edited after render: audio still "
+                        "matches the previous text; regenerate or "
+                        "re-render before publishing")
                 elif new_text != scene_or_resp["narration"]:
                     # No rendered audio yet (job errored early):
                     # plan update.
@@ -1042,8 +1672,9 @@ def edit_scene(job_id, index):
                 scene_or_resp["narration"] = new_text
                 if scene_or_resp.get("status") == "done":
                     scene_or_resp["status"] = "dirty"
-            if style is not None:
-                scene_or_resp["style"] = style.strip()
+            if look_changed and job.get("video"):
+                # The finished video's images used the old look.
+                job["video_stale"] = True
             resp = jsonify(
                 {"scene": scene_or_resp,
                  "plan": "marked dirty" if scene_or_resp.get("dirty")
@@ -1056,9 +1687,9 @@ def edit_scene(job_id, index):
 def regenerate_scene(job_id, index):
     """Regenerate ONE scene's image (Meta muse-image-1.0 only) plus its
     SAM check, without regenerating anything else. The scene's audio
-    and captions are untouched; when the narration no longer matches
-    what was rendered, the scene stays dirty with its reason, so stale
-    audio is flagged, never hidden. Key required."""
+    is untouched; when the narration no longer matches what was
+    rendered, the scene stays dirty with its reason, so stale audio
+    is flagged, never hidden. Key required."""
     job, scene_or_resp = _job_scene(job_id, index)
     if job is None:
         return scene_or_resp
@@ -1079,7 +1710,10 @@ def regenerate_scene(job_id, index):
             "narration": scene["narration"],
             "visual": visual,
             "visual_prompt": visual,
-            "style": scene.get("style") or job.get("style")}
+            "style": scene.get("style") or job.get("style"),
+            "color": scene.get("color") or job.get("color"),
+            "style_custom": (scene.get("style_custom")
+                             or job.get("style_custom"))}
     try:
         # Fix the concept from the visual prompt FIRST, before
         # regenerating: a bad concept must never burn a regen.
@@ -1117,7 +1751,7 @@ def regenerate_scene(job_id, index):
         if stale_audio:
             scene["dirty"] = True
             scene["dirty_reason"] = (
-                "image regenerated, but audio and captions still match "
+                "image regenerated, but audio still matches "
                 "the previous narration; re-render before publishing")
             scene["status"] = "dirty"
         elif scene.get("status") != "done" or scene.get("dirty"):

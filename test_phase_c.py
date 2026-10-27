@@ -62,18 +62,24 @@ def check_prompt_orientation():
     print("MOCKED PASS: image prompt carries real orientation per format")
 
 
-def check_caption_styles():
-    vertical = render.caption_style_for_aspect("9:16")
-    wide = render.caption_style_for_aspect("16:9")
-    assert vertical != wide, "caption layout is not format-specific"
-    for style in (vertical, wide):
-        assert "Alignment=2" in style, style  # bottom-center
-        assert "FontSize=" in style and "MarginV=" in style, style
-    v_margin = int(vertical.split("MarginV=")[1].split(",")[0])
-    w_margin = int(wide.split("MarginV=")[1].split(",")[0])
-    assert v_margin > w_margin, (vertical, wide)  # safe margins
-    print("MOCKED PASS: caption layout readable with safe margins in "
-          "both formats")
+def check_no_caption_layout():
+    # Captions are gone (owner decision Oct 27): no per-format
+    # caption layout exists anywhere in the render path.
+    assert not hasattr(render, "caption_style_for_aspect"), \
+        "caption_style_for_aspect still present"
+    assert not hasattr(render, "verify_captions"), \
+        "verify_captions still present"
+    here = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(here, "render.py"), encoding="utf-8") as f:
+        source = f.read()
+    # No subtitles filter is ever built into an ffmpeg command (the
+    # word survives only in the removal note in docstrings).
+    assert "subtitles='" not in source, \
+        "render.py still builds a subtitles filter"
+    assert "_segment_srt" not in source, \
+        "render.py still writes segment SRT files"
+    print("MOCKED PASS: no caption layout, no caption check, no "
+          "subtitles filter in the render path")
 
 
 class _FakeRun:
@@ -138,7 +144,8 @@ def check_assemble_dims():
         for cmd in seg_cmds:
             vf = cmd[cmd.index("-vf") + 1]
             assert dims in vf, (aspect, vf)
-            assert "force_style" in vf, (aspect, vf)
+            assert "subtitles" not in vf, (aspect, vf)
+            assert "force_style" not in vf, (aspect, vf)
             assert "yuv420p" in cmd, cmd  # browser-compatible pixels
         concat = [c for c in fake.cmds if c[-1] == final][0]
         assert "+faststart" in concat, concat
@@ -175,13 +182,16 @@ def _qc_with_dims(width, height, aspect):
     tmp = tempfile.mkdtemp(prefix="phase-c-qc-")
     path = os.path.join(tmp, "final_Test.mp4")
     open(path, "wb").write(b"fake-video-bytes")
-    captions = [{"scene": 0, "clean": True}, {"scene": 1, "clean": True}]
     with mock.patch.object(render, "_ffprobe",
                            return_value=_fake_probe(width, height)), \
             mock.patch.object(render, "_run",
                               return_value=_FakeVolume()):
-        return render.qc_report(path, captions=captions, captions_ok=True,
-                                aspect_ratio=aspect)
+        report = render.qc_report(path, aspect_ratio=aspect)
+        # A video without captions passes QC: no caption evidence
+        # is required or reported.
+        assert "captions" not in report, report
+        assert "caption_error" not in report, report
+        return report
 
 
 def check_qc_dims():
@@ -212,15 +222,18 @@ def check_preview_metadata():
     client = app.app.test_client()
     old_key = app._MEMORY_KEY["key"]
     app._MEMORY_KEY["key"] = FAKE_KEY
+    approved = {"script": ["Alpha line.", "Beta line."],
+                "visuals": ["alpha visual", "beta visual"]}
     try:
-        with mock.patch.object(app, "draft_script",
+        with mock.patch.object(render, "run_pipeline",
                                side_effect=RuntimeError("mocked down")):
             # Unknown formats are rejected before any job exists.
-            resp = client.post("/api/video", json={
-                "topic": "Rivers", "aspect_ratio": "1:1"})
+            resp = client.post("/api/video", json=dict(
+                {"topic": "Rivers", "aspect_ratio": "1:1"}, **approved))
             assert resp.status_code == 400, resp.get_data(as_text=True)
             # Default is vertical when the caller sends no format.
-            resp = client.post("/api/video", json={"topic": "Rivers"})
+            resp = client.post("/api/video", json=dict(
+                {"topic": "Rivers"}, **approved))
             assert resp.status_code == 200, resp.get_data(as_text=True)
             default_job = client.get(
                 "/api/job/" + resp.get_json()["job_id"]).get_json()
@@ -235,9 +248,10 @@ def check_preview_metadata():
                 if state in ("done", "error"):
                     break
                 time.sleep(0.2)
-            resp = client.post("/api/video", json={
-                "topic": "Rivers", "aspect_ratio": "16:9",
-                "audience": "middle-schoolers", "target_duration_s": 24})
+            resp = client.post("/api/video", json=dict(
+                {"topic": "Rivers", "aspect_ratio": "16:9",
+                 "audience": "middle-schoolers",
+                 "target_duration_s": 24}, **approved))
             assert resp.status_code == 200, resp.get_data(as_text=True)
             job = client.get(
                 "/api/job/" + resp.get_json()["job_id"]).get_json()
@@ -261,16 +275,19 @@ def check_workspace_states():
     old_key = app._MEMORY_KEY["key"]
     app._MEMORY_KEY["key"] = FAKE_KEY
     try:
-        # Failure: Spark goes down after a visible loading stretch.
-        # The job must end failed with nothing left working and its
-        # real error attached.
-        def _slow_spark_down(*args, **kwargs):
+        # Failure: the image backend goes down after a visible
+        # loading stretch. The job must end failed with nothing
+        # left working and its real error attached.
+        def _slow_image_down(*args, **kwargs):
             time.sleep(2.0)
-            raise RuntimeError("mocked Spark down")
+            raise RuntimeError("mocked Image down")
 
-        with mock.patch.object(app, "draft_script",
-                               side_effect=_slow_spark_down):
-            resp = client.post("/api/video", json={"topic": "Rivers"})
+        with mock.patch.object(render, "generate_images",
+                               side_effect=_slow_image_down):
+            resp = client.post("/api/video", json={
+                "topic": "Rivers",
+                "script": ["Alpha line.", "Beta line."],
+                "visuals": ["alpha visual", "beta visual"]})
             assert resp.status_code == 200, resp.get_data(as_text=True)
             job_id = resp.get_json()["job_id"]
             job = client.get("/api/job/" + job_id).get_json()
@@ -285,7 +302,7 @@ def check_workspace_states():
             assert job["status"] == "error", job
             assert loading_seen in ("queued", "running"), loading_seen
             assert job["status"] != loading_seen, job
-            assert "mocked Spark down" in job["error"], job
+            assert "mocked Image down" in job["error"], job
             assert FAKE_KEY not in job["error"], "key leaked"
             left = [k for k, v in job["stages"].items()
                     if v == "working"]
@@ -306,7 +323,7 @@ def check_workspace_states():
 def main():
     check_aspect_dims()
     check_prompt_orientation()
-    check_caption_styles()
+    check_no_caption_layout()
     check_assemble_dims()
     check_qc_dims()
     check_preview_metadata()

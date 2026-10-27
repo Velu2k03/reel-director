@@ -2,7 +2,10 @@
 
 Needs META_API_KEY. Renders 2 scenes and asserts:
   - QC passes (duration > 0, 1280x720, audio present, audible)
-  - each scene's segment subtitle file carries ONLY its own caption
+  - NO burned-in captions: no SRT file is written for any scene and
+    the finished file carries no subtitle stream (owner decision
+    Oct 27: captions removed because the burned-in output was not
+    good)
   - the QC report holds real SAM results (matches + boxes per scene)
   - every recorded backend is Meta (image muse-image-1.0, sam-3.1,
     voice facebook/mms-tts-eng)
@@ -96,16 +99,16 @@ def run_format(render, api_key, aspect, out_dir, expect_video):
         assert isinstance(entry.get("boxes"), list), qc
         assert isinstance(entry.get("concept"), str) and entry["concept"].strip(), qc
         assert isinstance(entry.get("subject"), str) and entry["subject"].strip(), qc
-    # Caption fix proof: each segment SRT must hold only its own line.
-    for i, scene in enumerate(SCENES):
-        srt_path = os.path.join(out_dir, "scene_%d.srt" % i)
-        with open(srt_path, encoding="utf-8") as f:
-            srt = f.read()
-        assert scene["narration"] in srt, "scene %d caption missing" % i
-        for j, other in enumerate(SCENES):
-            if j != i:
-                assert other["narration"] not in srt, (
-                    "scene %d SRT leaked scene %d caption" % (i, j))
+    # No-caption proof: no SRT file on disk for any scene, and no
+    # subtitle stream in the finished file.
+    leftovers = [n for n in os.listdir(out_dir)
+                 if n.endswith(".srt")]
+    assert leftovers == [], "SRT files written: %r" % (leftovers,)
+    probe = render._ffprobe(final)
+    kinds = [s.get("codec_type") for s in probe.get("streams", [])]
+    assert "subtitle" not in kinds, "subtitle stream burned in: %r" % (kinds,)
+    assert "captions" not in qc, qc
+    assert "caption_error" not in qc, qc
     total_matches = sum(e["matches"] for e in sam)
     print("PASS: %s (%.1fs, %s, audio %s, mean %.1f dB, "
           "SAM matches %d over %d scenes)" % (

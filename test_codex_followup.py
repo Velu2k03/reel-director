@@ -145,9 +145,10 @@ def check_assemble_crops_never_stretches():
             assert "scale=%s" % dims in vf, (aspect, vf)
             assert "crop=" in vf, (
                 "segment stretches instead of center-cropping: %r" % (vf,))
-            assert "force_style" in vf, (aspect, vf)
+            assert "subtitles" not in vf, (aspect, vf)
+            assert "force_style" not in vf, (aspect, vf)
     print("MOCKED PASS: assemble center-crops then scales "
-          "(no stretch), exact dims per format")
+          "(no stretch), exact dims per format, no burned-in captions")
 
 
 def check_qc_dims_still_gated():

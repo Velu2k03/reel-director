@@ -197,7 +197,7 @@ def check_zero_matches_warns_without_failing_qc():
     assert result.get("warning"), result
     assert result.get("skipped") is not True, result
     # Zero matches is a warning, never a QC failure on its own:
-    # with a technically valid file and good captions, QC passes.
+    # with a technically valid file and no captions, QC passes.
     tmp = tempfile.mkdtemp(prefix="finish-qc-")
     try:
         final = os.path.join(tmp, "final.mp4")
@@ -208,9 +208,6 @@ def check_zero_matches_warns_without_failing_qc():
                               "width": 1280, "height": 720},
                              {"codec_type": "audio",
                               "codec_name": "aac"}]}
-        captions = [{"scene": 0, "srt": "scene_0.srt",
-                     "has_own_caption": True, "clean": True}]
-
         def _fake_run(cmd, timeout=300):
             class _R:
                 returncode = 0
@@ -225,7 +222,6 @@ def check_zero_matches_warns_without_failing_qc():
                                side_effect=_fake_run):
             report = render.qc_report(
                 final, sam_results=[result],
-                captions=captions, captions_ok=True,
                 aspect_ratio="16:9")
         assert report["passed"] is True, report
         assert report["sam"][0]["matches"] == 0, report
