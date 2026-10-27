@@ -1,5 +1,12 @@
 .env
+.venv/
 __pycache__/
 *.pyc
 outputs/
+videos/
+test-render-out/
+test-render-out-9x16/
+test-render-out-16x9/
+tools/
+shots/
 *.mp4
