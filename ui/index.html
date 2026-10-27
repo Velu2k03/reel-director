@@ -3,444 +3,1229 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ReelDirector — Agentic Studio Console</title>
+<title>ReelDirector — Creator Workspace</title>
 <link href="/fonts/material-symbols.css" rel="stylesheet">
 <style>
   :root{
-    --bg:#F0F2F5; --card:#FFFFFF; --yellow:#1877F2; --teal:#1877F2;
-    --text:#050505; --muted:#65676B; --border:#E4E6EB; --dark:#F0F2F5;
-    --green:#31A24C; --red:#F02849;
+    --bg:#F0F2F5; --card:#FFFFFF;
+    --blue:#1877F2; --blue-dark:#0E5ACB; --text:#050505; --muted:#4E4F52; --border:#D8DADF;
+    --green:#1F7A38; --red:#C81E3A; --amber:#8A5A00;
   }
   *{box-sizing:border-box}
-  html{scroll-behavior:smooth}
+  [hidden]{display:none !important}
   body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.5}
-  .material-symbols-outlined{font-family:"Material Symbols Outlined";font-weight:normal;font-style:normal;font-size:22px;line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;word-wrap:normal;direction:ltr;-webkit-font-smoothing:antialiased;vertical-align:middle}
-  a{color:var(--teal)}
+  .material-symbols-outlined{font-family:"Material Symbols Outlined";font-weight:normal;font-style:normal;font-size:22px;line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;direction:ltr;-webkit-font-smoothing:antialiased;vertical-align:middle}
+  :focus-visible{outline:3px solid var(--blue);outline-offset:2px;border-radius:6px}
   .topbar{position:sticky;top:0;z-index:20;background:#FFFFFF;border-bottom:1px solid var(--border)}
-  .topbar-inner,.wrap{max-width:1180px;margin:0 auto;padding:0 20px}
-  .topbar-inner{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:68px}
-  .brand{display:flex;align-items:center;gap:12px;min-width:0}
-  .clapper{font-size:32px;line-height:1}
-  .wordmark{font-size:21px;font-weight:800;letter-spacing:.2px;white-space:nowrap}
-  .tag{display:block;font-size:10px;font-weight:700;letter-spacing:.16em;color:var(--teal);margin-top:1px}
-  .status-pill{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:999px;padding:8px 12px;font-size:13px;font-weight:650;white-space:nowrap}
-  .dot{width:9px;height:9px;border-radius:50%;background:var(--yellow);flex:0 0 auto}
+  .topbar-inner{max-width:1280px;margin:0 auto;padding:0 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:60px}
+  .wordmark{font-size:20px;font-weight:800;letter-spacing:.2px;white-space:nowrap}
+  .status-pill{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);background:var(--card);border-radius:999px;padding:8px 12px;font-size:13px;font-weight:650;white-space:nowrap}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--blue);flex:0 0 auto}
   .status-pill.online .dot{background:var(--green)}
   .status-pill.offline .dot{background:#BCC0C4}
-  .wrap{padding-top:34px;padding-bottom:34px}
-  .kicker{color:var(--teal);font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;margin:0 0 10px}
-  h1{font-size:clamp(32px,5vw,54px);line-height:1.05;letter-spacing:-.03em;margin:0;max-width:850px}
-  .support{color:var(--muted);font-size:18px;line-height:1.6;max-width:820px;margin:16px 0 26px}
-  .panel{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:16px}
-  .panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px}
-  .panel-title{display:flex;align-items:center;gap:10px;margin:0;font-size:18px;line-height:1.25}
-  .panel-title .material-symbols-outlined{color:var(--yellow)}
-  .panel-sub{color:var(--muted);font-size:14px;margin:5px 0 0 42px}
-  .icon-emoji{font-size:18px}
-  label{display:block;font-size:13px;font-weight:750;letter-spacing:.04em;margin-bottom:8px}
-  .topic-row{display:flex;gap:12px}
-  input[type="text"]{flex:1;min-width:0;background:var(--dark);border:1px solid var(--border);border-radius:12px;color:var(--text);font:inherit;font-size:16px;padding:14px 15px;outline:none}
-  input[type="text"]::placeholder{color:var(--muted)}
-  input[type="text"]:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(24,119,242,.20)}
-  .generate-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:12px;background:#1877F2;color:#FFFFFF;font:inherit;font-size:15px;font-weight:850;padding:0 20px;min-height:50px;cursor:pointer;white-space:nowrap}
-  .generate-btn .material-symbols-outlined{font-size:20px;color:#FFFFFF}
-  .generate-btn:hover:not(:disabled){background:#166FE5}
-  .generate-btn:focus-visible{outline:3px solid var(--teal);outline-offset:2px}
-  .generate-btn:disabled{opacity:.55;cursor:not-allowed}
-  .note{color:var(--muted);font-size:13px;margin:12px 0 0}
-  .note strong{color:var(--text)}
-  .section-label{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--text);margin:26px 0 12px}
-  .section-label .material-symbols-outlined{color:var(--teal);font-size:20px}
-  .pipeline{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
-  .stage{background:var(--card);border:1px solid var(--border);border-radius:15px;padding:16px;min-height:168px;display:flex;flex-direction:column}
-  .stage-icon{display:flex;align-items:center;gap:8px;color:var(--teal);margin-bottom:14px}
-  .stage-icon .material-symbols-outlined{font-size:27px}
-  .stage h3{font-size:16px;margin:0 0 7px}
-  .stage p{color:var(--muted);font-size:13px;line-height:1.45;margin:0}
-  .state{margin-top:auto;padding-top:16px}
-  .state-pill{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--border);border-radius:999px;padding:5px 9px;font-size:12px;font-weight:750;color:var(--muted)}
-  .state-dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
-  .stage[data-state="working"]{border-color:var(--yellow)}
-  .stage[data-state="working"] .state-pill{color:var(--yellow);border-color:var(--yellow)}
-  .stage[data-state="working"] .state-dot{background:var(--yellow);animation:pulse 1s ease-in-out infinite}
-  .stage[data-state="done"]{border-color:var(--teal)}
-  .stage[data-state="done"] .state-pill{color:var(--teal);border-color:var(--teal)}
-  .stage[data-state="done"] .state-dot{background:var(--teal)}
-  .stage[data-state="error"]{border-color:var(--red)}
-  .stage[data-state="error"] .state-pill{color:var(--red);border-color:var(--red)}
-  .stage[data-state="error"] .state-dot{background:var(--red)}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-  .badge{border:1px solid var(--border);color:var(--muted);border-radius:999px;padding:5px 9px;font-size:12px;font-weight:700;white-space:nowrap}
-  .script-empty{border:1px dashed #E4E6EB;border-radius:12px;padding:20px;color:var(--muted);background:var(--dark)}
-  .script-empty strong{color:var(--text)}
-  .script-list{list-style:none;margin:0;padding:0;display:none}
-  .script-list.visible{display:block}
-  .script-line{display:flex;gap:14px;padding:15px 0;border-bottom:1px solid var(--border)}
-  .script-line:last-child{border-bottom:0}
-  .line-number{display:flex;align-items:center;justify-content:center;flex:0 0 34px;width:34px;height:34px;border-radius:10px;background:var(--yellow);color:#FFFFFF;font-weight:850;font-size:14px}
-  .line-text{font-size:16px;line-height:1.65;padding-top:4px}
-  .storyboard{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-  .scene{background:var(--card);border:1px solid var(--border);border-radius:15px;overflow:hidden}
-  .scene-art{height:118px;background:var(--dark);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:9px;color:var(--teal);position:relative}
-  .scene-art img{width:100%;height:100%;object-fit:cover;display:block}
-  .scene-art .material-symbols-outlined{font-size:38px}
-  .scene-art .icon-emoji{font-size:26px}
-  .scene-number{position:absolute;top:10px;left:10px;background:var(--card);border:1px solid var(--border);color:var(--yellow);border-radius:999px;font-size:11px;font-weight:800;letter-spacing:.08em;padding:4px 8px}
-  .scene-body{padding:14px}
-  .scene-body h3{font-size:15px;margin:0 0 7px}
-  .scene-caption{color:var(--text);font-size:13px;line-height:1.5;margin:0;min-height:58px}
-  .scene-note{color:var(--muted);font-size:12px;border-top:1px solid var(--border);padding-top:10px;margin-top:12px}
-  .log-console{background:var(--dark);border:1px solid var(--border);border-radius:12px;height:230px;overflow-y:auto;padding:14px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;font-size:13px;line-height:1.65}
-  .log-line{white-space:pre-wrap;word-break:break-word;margin:0 0 4px}
-  .log-time{color:var(--muted);margin-right:8px}
-  .log-line.success{color:var(--teal)}
+  .wrap{max-width:1280px;margin:0 auto;padding:24px 20px 28px}
+  .hero h1{font-size:clamp(28px,4vw,40px);line-height:1.12;letter-spacing:-.01em;margin:0}
+  .hero p{color:var(--muted);font-size:17px;margin:8px 0 20px;max-width:640px}
+  .workspace{display:grid;gap:14px;grid-template-columns:300px minmax(0,1fr) 300px;grid-template-areas:"brief center director" "board board board" "tech tech tech";align-items:start}
+  .brief-col{grid-area:brief}
+  .center-col{grid-area:center;display:flex;flex-direction:column;gap:14px;min-width:0}
+  .director-col{grid-area:director}
+  .board-panel{grid-area:board}
+  .tech-panel{grid-area:tech}
+  .panel{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px;min-width:0}
+  .panel h2{font-size:16px;margin:0 0 12px;font-weight:800;display:flex;align-items:center;gap:8px}
+  .panel h2 .material-symbols-outlined{color:var(--blue);font-size:20px}
+  .field{margin-bottom:14px}
+  .field label{display:block;font-size:13px;font-weight:750;margin-bottom:6px}
+  .hint{color:var(--muted);font-size:12px;margin:6px 0 0}
+  input[type="text"],input[type="number"],input[type="password"],textarea{width:100%;background:#F5F6F7;border:1px solid var(--border);border-radius:12px;color:var(--text);font:inherit;font-size:15px;padding:11px 12px;outline:none}
+  input:focus,textarea:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(24,119,242,.20)}
+  textarea{resize:vertical;min-height:56px;font-size:14px}
+  .aspect-options{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .aspect-option{border:1px solid var(--border);border-radius:12px;padding:10px;cursor:pointer;display:flex;gap:8px;align-items:flex-start;font-size:13px}
+  .aspect-option:has(input:checked){border-color:var(--blue);box-shadow:0 0 0 2px rgba(24,119,242,.25)}
+  .aspect-option input{width:auto;margin-top:2px}
+  .aspect-option strong{display:block;font-size:13px}
+  .aspect-option span{color:var(--muted);font-size:12px}
+  .primary-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:12px;background:#1877F2;color:#FFFFFF;font:inherit;font-size:15px;font-weight:800;padding:0 20px;min-height:50px;cursor:pointer;width:100%}
+  .primary-btn:hover{background:var(--blue-dark)}
+  .primary-btn:disabled{opacity:.55;cursor:not-allowed}
+  .primary-btn .material-symbols-outlined{font-size:20px;color:#FFFFFF}
+  .quiet-btn{border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:999px;font:inherit;font-size:13px;font-weight:650;padding:8px 14px;margin-top:10px;cursor:pointer}
+  .key-row{margin-top:14px;border-top:1px solid var(--border);padding-top:14px}
+  .key-row .key-input-row{display:flex;gap:8px}
+  .key-row input{flex:1;min-width:0}
+  .key-row button{border:0;border-radius:12px;background:#1877F2;color:#FFF;font:inherit;font-size:14px;font-weight:800;padding:0 16px;cursor:pointer;white-space:nowrap}
+  .error-line{color:var(--red);font-size:14px;font-weight:700;margin:12px 0 0}
+  .fix-line{color:var(--muted);font-size:13px;margin:4px 0 0}
+  .preview-frame{background:#000;border-radius:12px;overflow:hidden;width:100%}
+  .preview-frame video{width:100%;height:100%;display:block;background:#000}
+  .workspace[data-preview-aspect="9:16"] .preview-frame{aspect-ratio:9/16;max-width:330px;margin:0 auto}
+  .workspace[data-preview-aspect="16:9"] .preview-frame{aspect-ratio:16/9}
+  .preview-state{border:1px dashed var(--border);border-radius:12px;padding:26px 18px;text-align:center;color:var(--muted);font-size:14px}
+  .preview-state .material-symbols-outlined{font-size:34px;display:block;margin-bottom:8px;color:var(--blue)}
+  .preview-state[data-state="error"]{border-style:solid;border-color:var(--red);color:var(--text)}
+  .preview-state[data-state="error"] .material-symbols-outlined{color:var(--red)}
+  .preview-state strong{color:var(--text)}
+  .preview-meta{color:var(--muted);font-size:13px;margin:10px 0 0}
+  .preview-meta a{color:var(--blue)}
+  .progress{list-style:none;margin:14px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+  .progress li{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;color:var(--muted)}
+  .progress .p-dot{width:7px;height:7px;border-radius:50%;background:#BCC0C4;flex:0 0 auto}
+  .progress li[data-state="working"]{border-color:var(--blue);color:var(--text)}
+  .progress li[data-state="working"] .p-dot{background:var(--blue)}
+  .progress li[data-state="done"]{color:var(--text)}
+  .progress li[data-state="done"] .p-dot{background:var(--green)}
+  .progress li[data-state="error"]{border-color:var(--red);color:var(--text)}
+  .progress li[data-state="error"] .p-dot{background:var(--red)}
+  .progress li[data-state="interrupted"],.progress li[data-state="cancelled"]{border-color:var(--amber);color:var(--text)}
+  .progress li[data-state="interrupted"] .p-dot,.progress li[data-state="cancelled"] .p-dot{background:var(--amber)}
+  .current-step{font-size:13px;font-weight:700;margin:10px 0 0}
+  .plan-list{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}
+  .plan-line{display:flex;gap:10px;align-items:flex-start}
+  .line-number{display:flex;align-items:center;justify-content:center;flex:0 0 30px;width:30px;height:30px;border-radius:9px;background:var(--blue);color:#FFFFFF;font-weight:850;font-size:13px;margin-top:4px}
+  .plan-empty{color:var(--muted);font-size:14px;margin:8px 0 0}
+  .decision-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;font-size:13px}
+  .decision-list li{display:flex;gap:8px;align-items:flex-start}
+  .decision-list .material-symbols-outlined{font-size:18px;flex:0 0 auto;margin-top:1px}
+  .decision-list .ok{color:var(--green)}
+  .decision-list .bad{color:var(--red)}
+  .decision-list .warn{color:var(--amber)}
+  .decision-list .info{color:var(--blue)}
+  .director-empty{color:var(--muted);font-size:14px;margin:0}
+  .storyboard{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:14px}
+  .scene{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;min-width:0}
+  .scene img{width:100%;height:118px;object-fit:cover;display:block;background:#F5F6F7}
+  .scene-placeholder{width:100%;height:118px;display:flex;align-items:center;justify-content:center;background:#F5F6F7;color:var(--muted);font-size:12px;font-weight:650;text-align:center;padding:0 12px}
+  .scene-body{padding:12px;display:flex;flex-direction:column;gap:8px}
+  .scene-body p{font-size:13px;line-height:1.5;margin:0}
+  .scene-meta{font-size:12px;color:var(--muted)}
+  .scene-status{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:750}
+  .scene-status .state-dot{width:7px;height:7px;border-radius:50%;background:#BCC0C4}
+  .scene-status[data-state="done"] .state-dot{background:var(--green)}
+  .scene-status[data-state="error"] .state-dot{background:var(--red)}
+  .scene-status[data-state="dirty"] .state-dot{background:var(--amber)}
+  .scene-status[data-state="working"] .state-dot{background:var(--blue)}
+  .scene-status[data-state="interrupted"] .state-dot,.scene-status[data-state="cancelled"] .state-dot{background:var(--amber)}
+  .scene textarea{min-height:64px;font-size:13px;padding:8px 10px}
+  .scene-row{display:flex;gap:8px}
+  .scene-btn{flex:1;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:999px;font:inherit;font-size:12px;font-weight:700;padding:6px 10px;cursor:pointer}
+  .scene-btn:disabled{opacity:.55;cursor:not-allowed}
+  .scene-dirty{font-size:12px;font-weight:700;color:var(--amber)}
+  .scene-error{font-size:12px;font-weight:700;color:var(--red)}
+  .director-line{font-size:12px;color:var(--muted)}
+  .director-unmet{font-size:12px;font-weight:700;color:var(--red)}
+  .board-empty{color:var(--muted);font-size:14px;margin:12px 0 0}
+  details.panel summary{cursor:pointer;font-weight:800;font-size:15px}
+  pre.full-report{background:#F5F6F7;border:1px solid var(--border);border-radius:10px;padding:12px;font-size:12px;overflow-x:auto;white-space:pre-wrap;word-break:break-word}
+  .log-console{background:#F5F6F7;border:1px solid var(--border);border-radius:10px;max-height:230px;overflow-y:auto;padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.6;margin-top:12px}
+  .log-line{margin:0 0 4px;word-break:break-word}
   .log-line.error{color:var(--red)}
-  .log-line.warn{color:#8A6100}
-  footer{border-top:1px solid var(--border);margin-top:28px;padding-top:18px;color:var(--muted);font-size:13px;line-height:1.6}
-  footer strong{color:var(--text)}
-  @media (max-width:980px){
-    .pipeline{grid-template-columns:repeat(3,1fr)}
-    .storyboard{grid-template-columns:repeat(2,1fr)}
+  .log-line.success{color:var(--green)}
+  footer{color:var(--muted);font-size:13px;margin-top:18px}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  @media (max-width:1080px){
+    .workspace{grid-template-columns:280px minmax(0,1fr);grid-template-areas:"brief center" "director director" "board board" "tech tech"}
   }
-  @media (max-width:640px){
-    .topbar-inner{align-items:flex-start;padding-top:12px;padding-bottom:12px}
-    .wordmark{font-size:18px}
-    .status-pill{font-size:12px;padding:7px 9px}
-    .topic-row{flex-direction:column}
-    .generate-btn{width:100%}
-    .pipeline,.storyboard{grid-template-columns:1fr}
-    .panel{padding:16px}
-    .panel-sub{margin-left:0}
-    h1{font-size:34px}
-    .support{font-size:16px}
+  @media (max-width:760px){
+    .topbar-inner,.wrap{padding-left:14px;padding-right:14px}
+    .workspace{grid-template-columns:minmax(0,1fr);grid-template-areas:"brief" "center" "director" "board" "tech"}
+    .storyboard{grid-template-columns:minmax(0,1fr)}
+    .aspect-options{grid-template-columns:1fr 1fr}
   }
 </style>
 </head>
 <body>
 <header class="topbar">
   <div class="topbar-inner">
-    <div class="brand">
-      <span class="clapper" aria-hidden="true">🎬</span>
-      <div>
-        <div class="wordmark">ReelDirector</div>
-        <span class="tag">META HACKATHON EVENT BUILD</span>
-      </div>
-    </div>
+    <div class="wordmark">ReelDirector</div>
     <div class="status-pill offline" id="statusPill" role="status" aria-live="polite">
       <span class="dot" aria-hidden="true"></span>
-      <span id="statusText">Checking API…</span>
+      <span id="statusText">Checking</span>
     </div>
   </div>
 </header>
 
 <main class="wrap">
-  <p class="kicker">Agentic studio console — faceless video, end to end</p>
-  <h1>Turn a single topic into a narrated faceless video, with every production step in view.</h1>
-  <p class="support">ReelDirector runs the line in order: an agent writes the script, scenes are planned from those exact lines, then voice, assembly, and QC pass the job forward. Nothing is hidden behind a spinner — the stages and log show what happened, or what failed.</p>
+  <div class="hero">
+    <h1>Your idea. A finished reel.</h1>
+    <p>One workspace to plan, review, and produce a narrated video.</p>
+  </div>
+  <p class="sr-only" aria-live="polite" id="stateAnnouncer"></p>
 
-  <section class="panel" aria-labelledby="topic-heading">
-    <div class="panel-head">
-      <div>
-        <h2 class="panel-title" id="topic-heading"><span class="material-symbols-outlined" aria-hidden="true">edit_note</span><span class="icon-emoji" aria-hidden="true">✍️</span> Start a production run</h2>
-        <p class="panel-sub">Enter a clear topic. A specific angle gives the script agent a tighter hook, structure, and closing line.</p>
-      </div>
+  <div class="workspace" id="workspace" data-job-state="empty" data-preview-aspect="9:16">
+    <section class="panel brief-col" aria-label="Brief and production settings">
+      <h2><span class="material-symbols-outlined" aria-hidden="true">edit_note</span>Brief</h2>
+      <form id="planForm">
+        <div class="field">
+          <label for="topicInput">Topic</label>
+          <input type="text" id="topicInput" name="topic" placeholder="e.g. How rivers carve valleys" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="audienceInput">Audience</label>
+          <input type="text" id="audienceInput" name="audience" placeholder="e.g. middle-school science students" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="durationInput">Target length (seconds)</label>
+          <input type="number" id="durationInput" name="duration" min="5" max="300" step="1" placeholder="Auto (about 6 seconds per scene)">
+        </div>
+        <div class="field">
+          <span class="field-label" id="aspectLabel" role="presentation" style="display:block;font-size:13px;font-weight:750;margin-bottom:6px">Format</span>
+          <div class="aspect-options" role="radiogroup" aria-labelledby="aspectLabel">
+            <label class="aspect-option"><input type="radio" name="aspect" value="9:16" checked><span><strong>Vertical 9:16</strong><span>720 &times; 1280, for phones</span></span></label>
+            <label class="aspect-option"><input type="radio" name="aspect" value="16:9"><span><strong>Wide 16:9</strong><span>1280 &times; 720, for desktop</span></span></label>
+          </div>
+        </div>
+        <div class="field">
+          <label for="styleInput">Visual style</label>
+          <textarea id="styleInput" autocomplete="off"></textarea>
+          <p class="hint">One style block used for every scene image.</p>
+        </div>
+        <button class="primary-btn" id="planBtn" type="submit"><span class="material-symbols-outlined" aria-hidden="true">movie_edit</span><span id="planBtnText">1. Plan scenes</span></button>
+        <button type="button" class="quiet-btn" id="sampleBtn">Try a sample topic</button>
+        <div class="key-row" id="keyRow" hidden>
+          <label for="keyInput">API key</label>
+          <div class="key-input-row">
+            <input type="password" id="keyInput" placeholder="Paste your Meta API key" autocomplete="off">
+            <button id="keyBtn" type="button">Save</button>
+          </div>
+          <p class="hint">Needed for a real video. Kept in memory only.</p>
+        </div>
+        <p class="error-line" id="errorLine" hidden></p>
+        <p class="fix-line" id="fixLine" hidden></p>
+      </form>
+    </section>
+
+    <div class="center-col">
+      <section class="panel" aria-label="Video preview">
+        <h2><span class="material-symbols-outlined" aria-hidden="true">play_circle</span>Preview</h2>
+        <div class="preview-frame" id="previewFrame" hidden>
+          <video id="outputVideo" controls playsinline preload="metadata"></video>
+        </div>
+        <div class="preview-state" id="previewState" data-state="empty">
+          <span class="material-symbols-outlined" aria-hidden="true" id="previewIcon">movie</span>
+          <div id="previewText"><strong>No video yet.</strong><br>Describe your brief, plan the scenes, then produce.</div>
+        </div>
+        <p class="preview-meta" id="previewMeta" hidden></p>
+        <ol class="progress" id="progressList" aria-label="Production progress"></ol>
+        <p class="current-step" id="currentStep" aria-live="polite">Not started.</p>
+      </section>
+
+      <section class="panel" aria-label="Scene plan">
+        <h2><span class="material-symbols-outlined" aria-hidden="true">list_alt</span>Scene plan <span id="planCount" style="font-weight:600;color:var(--muted);font-size:13px"></span></h2>
+        <p class="plan-empty" id="planEmpty">Plan scenes first. You can review and edit every line before anything renders.</p>
+        <ol class="plan-list" id="planList" hidden></ol>
+        <button class="primary-btn" id="produceBtn" type="button" hidden><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span><span id="produceBtnText">2. Produce video</span></button>
+        <button class="quiet-btn" id="cancelBtn" type="button" hidden>Cancel production</button>
+        <button class="quiet-btn" id="retryBtn" type="button" hidden>Retry from the stored plan</button>
+        <p class="hint" id="cancelHint" hidden>Cancelling stops at the next stage boundary. A running image, voice, or assembly step finishes first and cannot be killed mid-step.</p>
+        <p class="hint" id="planHint" hidden>Review the lines above. Edit anything, then produce. Nothing renders until you press this button.</p>
+      </section>
     </div>
-    <form id="generateForm">
-      <label for="topicInput">Video topic</label>
-      <div class="topic-row">
-        <input type="text" id="topicInput" name="topic" placeholder="e.g. How AI agents plan, act, and learn" autocomplete="off">
-        <button class="generate-btn" id="generateBtn" type="submit"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span><span aria-hidden="true">▶️</span><span id="generateBtnText">Generate</span></button>
-      </div>
-      <p class="note">The script step uses <strong>Muse Spark through the Meta Model API</strong>. The stages below run the full render for real: images, voice, assembly, and QC, and the finished video appears below.</p>
-    </form>
-  </section>
 
-  <h2 class="section-label"><span class="material-symbols-outlined" aria-hidden="true">account_tree</span><span class="icon-emoji" aria-hidden="true">🧭</span> Pipeline</h2>
-  <section class="pipeline" aria-label="Production pipeline">
-    <article class="stage" id="stage-script" data-state="waiting">
-      <div class="stage-icon"><span class="material-symbols-outlined" aria-hidden="true">description</span><span class="icon-emoji" aria-hidden="true">📝</span></div>
-      <h3>Script</h3>
-      <p>Writes numbered narration lines from your topic through the Meta Model API.</p>
-      <div class="state"><span class="state-pill"><span class="state-dot"></span><span class="state-label">Waiting</span></span></div>
-    </article>
-    <article class="stage" id="stage-scenes" data-state="waiting">
-      <div class="stage-icon"><span class="material-symbols-outlined" aria-hidden="true">image</span><span class="icon-emoji" aria-hidden="true">🖼️</span></div>
-      <h3>Scenes</h3>
-      <p>Generates one illustration per narration line.</p>
-      <div class="state"><span class="state-pill"><span class="state-dot"></span><span class="state-label">Waiting</span></span></div>
-    </article>
-    <article class="stage" id="stage-voice" data-state="waiting">
-      <div class="stage-icon"><span class="material-symbols-outlined" aria-hidden="true">mic</span><span class="icon-emoji" aria-hidden="true">🎤</span></div>
-      <h3>Voice</h3>
-      <p>Synthesizes the narration track, edge-tts with gTTS fallback.</p>
-      <div class="state"><span class="state-pill"><span class="state-dot"></span><span class="state-label">Waiting</span></span></div>
-    </article>
-    <article class="stage" id="stage-assemble" data-state="waiting">
-      <div class="stage-icon"><span class="material-symbols-outlined" aria-hidden="true">movie</span><span class="icon-emoji" aria-hidden="true">🎞️</span></div>
-      <h3>Assemble</h3>
-      <p>Assembles scenes, voice, and per-scene captions into the finished MP4.</p>
-      <div class="state"><span class="state-pill"><span class="state-dot"></span><span class="state-label">Waiting</span></span></div>
-    </article>
-    <article class="stage" id="stage-qc" data-state="waiting">
-      <div class="stage-icon"><span class="material-symbols-outlined" aria-hidden="true">verified</span><span class="icon-emoji" aria-hidden="true">✅</span></div>
-      <h3>QC</h3>
-      <p>Verifies the finished file: duration, resolution, streams, and audible voice.</p>
-      <div class="state"><span class="state-pill"><span class="state-dot"></span><span class="state-label">Waiting</span></span></div>
-    </article>
-  </section>
+    <aside class="panel director-col" aria-label="Director decisions and quality checks">
+      <h2><span class="material-symbols-outlined" aria-hidden="true">verified</span>Director</h2>
+      <p class="director-empty" id="directorEmpty">No review yet. Decisions and checks appear here while your video is produced.</p>
+      <ul class="decision-list" id="decisionList"></ul>
+    </aside>
 
-  <section class="panel" style="margin-top:16px" aria-labelledby="script-heading">
-    <div class="panel-head">
-      <div>
-        <h2 class="panel-title" id="script-heading"><span class="material-symbols-outlined" aria-hidden="true">description</span><span class="icon-emoji" aria-hidden="true">📝</span> Script</h2>
-        <p class="panel-sub">Numbered lines returned by the script agent, laid out for a straight narration read.</p>
-      </div>
-      <span class="badge" id="scriptCount">No lines yet</span>
-    </div>
-    <div class="script-empty" id="scriptEmpty"><strong>No script yet.</strong><br>Generate from a topic above and the returned lines will appear here, numbered in the order they should be read.</div>
-    <ol class="script-list" id="scriptList"></ol>
-  </section>
+    <section class="panel board-panel" aria-label="Scene storyboard">
+      <h2><span class="material-symbols-outlined" aria-hidden="true">grid_view</span>Scenes <span id="boardCount" style="font-weight:600;color:var(--muted);font-size:13px"></span></h2>
+      <p class="board-empty" id="boardEmpty">No scenes yet. Real scene cards appear here during and after a production.</p>
+      <div class="storyboard" id="boardGrid"></div>
+    </section>
 
-  <h2 class="section-label"><span class="material-symbols-outlined" aria-hidden="true">view_carousel</span><span class="icon-emoji" aria-hidden="true">🎞️</span> Storyboard</h2>
-  <section class="storyboard" aria-label="Storyboard">
-    <article class="scene">
-      <div class="scene-art"><span class="scene-number">SCENE 1</span><img src="/scenes/scene1.jpg" alt="Robot director studying a plan board"></div>
-      <div class="scene-body"><h3>Scene 1</h3><p class="scene-caption" id="caption-1">Opening hook: the promise or problem lands in the first three seconds.</p><div class="scene-note">Scene art: Flow Nano Banana, Facebook theme (demo art)</div></div>
-    </article>
-    <article class="scene">
-      <div class="scene-art"><span class="scene-number">SCENE 2</span><img src="/scenes/scene2.jpg" alt="Robot director arranging storyboard frames"></div>
-      <div class="scene-body"><h3>Scene 2</h3><p class="scene-caption" id="caption-2">Context beat: the key idea is explained in plain, visual terms.</p><div class="scene-note">Scene art: Flow Nano Banana, Facebook theme (demo art)</div></div>
-    </article>
-    <article class="scene">
-      <div class="scene-art"><span class="scene-number">SCENE 3</span><img src="/scenes/scene3.jpg" alt="Robot director adjusting a studio microphone"></div>
-      <div class="scene-body"><h3>Scene 3</h3><p class="scene-caption" id="caption-3">Proof beat: an example, contrast, or consequence makes the idea stick.</p><div class="scene-note">Scene art: Flow Nano Banana, Facebook theme (demo art)</div></div>
-    </article>
-    <article class="scene">
-      <div class="scene-art"><span class="scene-number">SCENE 4</span><img src="/scenes/scene4.jpg" alt="Robot director watching the finished video"></div>
-      <div class="scene-body"><h3>Scene 4</h3><p class="scene-caption" id="caption-4">Closing beat: the takeaway is restated cleanly for the final frame.</p><div class="scene-note">Scene art: Flow Nano Banana, Facebook theme (demo art)</div></div>
-    </article>
-  </section>
+    <details class="panel tech-panel">
+      <summary>Technical details</summary>
+      <p class="hint" id="connLine">Connection information appears here.</p>
+      <div class="log-console" id="jobLog" aria-label="Job log"></div>
+      <pre class="full-report" id="qcFull" hidden></pre>
+    </details>
 
-  <h2 class="section-label"><span class="material-symbols-outlined" aria-hidden="true">movie</span><span class="icon-emoji" aria-hidden="true">🎬</span> Finished video</h2>
-  <section class="panel" id="videoSection" style="display:none" aria-labelledby="video-heading">
-    <h2 class="panel-title" id="video-heading" style="margin-bottom:14px"><span class="material-symbols-outlined" aria-hidden="true">movie</span><span class="icon-emoji" aria-hidden="true">🎬</span> Finished video</h2>
-    <video id="outputVideo" controls style="width:100%;border-radius:12px;background:#000"></video>
-    <p style="margin-top:12px"><a id="downloadLink" href="#" download>Download MP4</a><span id="qcReport" style="color:var(--muted);font-size:13px"></span></p>
-  </section>
-
-  <h2 class="section-label"><span class="material-symbols-outlined" aria-hidden="true">terminal</span><span class="icon-emoji" aria-hidden="true">💻</span> Job log</h2>
-  <section class="panel" aria-labelledby="log-heading">
-    <h2 class="panel-title" id="log-heading" style="margin-bottom:14px"><span class="material-symbols-outlined" aria-hidden="true">terminal</span><span class="icon-emoji" aria-hidden="true">💻</span> Console output</h2>
-    <div class="log-console" id="jobLog" aria-live="polite" aria-label="Job log"></div>
-  </section>
-
-  <footer>ReelDirector console. The API key is never stored in the repo.</footer>
+    <footer>ReelDirector console. Key stays in memory.</footer>
+  </div>
 </main>
 
 <script>
-  const form = document.getElementById('generateForm');
-  const topicInput = document.getElementById('topicInput');
-  const generateBtn = document.getElementById('generateBtn');
-  const generateBtnText = document.getElementById('generateBtnText');
-  const statusPill = document.getElementById('statusPill');
-  const statusText = document.getElementById('statusText');
-  const scriptList = document.getElementById('scriptList');
-  const scriptEmpty = document.getElementById('scriptEmpty');
-  const scriptCount = document.getElementById('scriptCount');
-  const jobLog = document.getElementById('jobLog');
-  const videoSection = document.getElementById('videoSection');
-  const outputVideo = document.getElementById('outputVideo');
-  const downloadLink = document.getElementById('downloadLink');
-  const qcReport = document.getElementById('qcReport');
-  const stageKeys = ['script', 'scenes', 'voice', 'assemble', 'qc'];
-  const stateNames = { waiting: 'Waiting', working: 'Working', done: 'Done', error: 'Error' };
+  var workspace = document.getElementById('workspace');
+  var planForm = document.getElementById('planForm');
+  var topicInput = document.getElementById('topicInput');
+  var audienceInput = document.getElementById('audienceInput');
+  var durationInput = document.getElementById('durationInput');
+  var styleInput = document.getElementById('styleInput');
+  var planBtn = document.getElementById('planBtn');
+  var planBtnText = document.getElementById('planBtnText');
+  var produceBtn = document.getElementById('produceBtn');
+  var produceBtnText = document.getElementById('produceBtnText');
+  var sampleBtn = document.getElementById('sampleBtn');
+  var keyRow = document.getElementById('keyRow');
+  var keyInput = document.getElementById('keyInput');
+  var keyBtn = document.getElementById('keyBtn');
+  var errorLine = document.getElementById('errorLine');
+  var fixLine = document.getElementById('fixLine');
+  var statusPill = document.getElementById('statusPill');
+  var statusText = document.getElementById('statusText');
+  var stateAnnouncer = document.getElementById('stateAnnouncer');
+  var previewFrame = document.getElementById('previewFrame');
+  var outputVideo = document.getElementById('outputVideo');
+  var previewState = document.getElementById('previewState');
+  var previewIcon = document.getElementById('previewIcon');
+  var previewText = document.getElementById('previewText');
+  var previewMeta = document.getElementById('previewMeta');
+  var progressList = document.getElementById('progressList');
+  var currentStep = document.getElementById('currentStep');
+  var planList = document.getElementById('planList');
+  var planEmpty = document.getElementById('planEmpty');
+  var planCount = document.getElementById('planCount');
+  var planHint = document.getElementById('planHint');
+  var directorEmpty = document.getElementById('directorEmpty');
+  var decisionList = document.getElementById('decisionList');
+  var boardGrid = document.getElementById('boardGrid');
+  var boardCount = document.getElementById('boardCount');
+  var boardEmpty = document.getElementById('boardEmpty');
+  var jobLog = document.getElementById('jobLog');
+  var qcFull = document.getElementById('qcFull');
+  var connLine = document.getElementById('connLine');
 
-  function timeNow() {
-    return new Date().toLocaleTimeString([], { hour12: false });
+  var cancelBtn = document.getElementById('cancelBtn');
+  var retryBtn = document.getElementById('retryBtn');
+  var cancelHint = document.getElementById('cancelHint');
+
+  var STAGES = [
+    ['script', 'Script'], ['revise', 'Director review'],
+    ['scenes', 'Images'], ['sam', 'Scene check'],
+    ['voice', 'Voice'], ['assemble', 'Assemble'], ['qc', 'Checks']
+  ];
+  var STATE_NAMES = { waiting: 'Waiting', working: 'Working', done: 'Done', error: 'Error', interrupted: 'Interrupted', cancelled: 'Cancelled' };
+  var LAST_JOB_KEY = 'reeldirector.lastJobId';
+
+  function rememberJob(jobId) {
+    currentJobId = jobId;
+    try { localStorage.setItem(LAST_JOB_KEY, jobId); } catch (e) { /* private mode: restore skips */ }
+  }
+
+  function formatElapsed(job) {
+    if (job && typeof job.elapsed_s === 'number') return ' · ' + job.elapsed_s + 's elapsed';
+    return '';
+  }
+  var DIMS = { '9:16': [720, 1280], '16:9': [1280, 720] };
+  var planLines = [];
+  var planMode = null;
+  var currentJobId = null;
+
+  STAGES.forEach(function (pair) {
+    var li = document.createElement('li');
+    li.id = 'progress-' + pair[0];
+    li.dataset.state = 'waiting';
+    var dot = document.createElement('span');
+    dot.className = 'p-dot';
+    dot.setAttribute('aria-hidden', 'true');
+    var label = document.createElement('span');
+    label.textContent = pair[1];
+    li.appendChild(dot);
+    li.appendChild(label);
+    progressList.appendChild(li);
+  });
+
+  function selectedAspect() {
+    var checked = document.querySelector('input[name="aspect"]:checked');
+    return checked ? checked.value : '9:16';
+  }
+
+  function setPreviewAspect(aspect) {
+    workspace.dataset.previewAspect = (aspect === '16:9') ? '16:9' : '9:16';
+  }
+
+  document.querySelectorAll('input[name="aspect"]').forEach(function (radio) {
+    radio.addEventListener('change', function () { setPreviewAspect(selectedAspect()); });
+  });
+
+  function setJobState(state, announce) {
+    workspace.dataset.jobState = state;
+    if (announce) stateAnnouncer.textContent = announce;
+  }
+
+  function showPreviewMessage(state, icon, html) {
+    previewFrame.hidden = true;
+    previewState.hidden = false;
+    previewState.dataset.state = state;
+    previewIcon.textContent = icon;
+    previewText.innerHTML = html;
+  }
+
+  function showPreviewVideo() {
+    previewState.hidden = true;
+    previewFrame.hidden = false;
   }
 
   function addLog(message, type) {
-    const line = document.createElement('p');
+    var line = document.createElement('p');
     line.className = 'log-line' + (type ? ' ' + type : '');
-    const time = document.createElement('span');
-    time.className = 'log-time';
-    time.textContent = '[' + timeNow() + ']';
-    line.appendChild(time);
-    line.appendChild(document.createTextNode(message));
+    line.textContent = message;
     jobLog.appendChild(line);
     jobLog.scrollTop = jobLog.scrollHeight;
   }
 
-  function setStage(key, state) {
-    const stage = document.getElementById('stage-' + key);
-    if (!stage) return;
-    stage.dataset.state = state;
-    stage.querySelector('.state-label').textContent = stateNames[state] || state;
+  function showProblem(error, fix) {
+    errorLine.textContent = error;
+    errorLine.hidden = false;
+    fixLine.textContent = fix;
+    fixLine.hidden = false;
   }
 
-  function resetStages() {
-    stageKeys.forEach(function (key) { setStage(key, 'waiting'); });
+  function clearProblem() {
+    errorLine.hidden = true;
+    fixLine.hidden = true;
+  }
+
+  function setProgress(key, state) {
+    var li = document.getElementById('progress-' + key);
+    if (!li) return;
+    li.dataset.state = state;
+  }
+
+  function resetProgress() {
+    STAGES.forEach(function (pair) { setProgress(pair[0], 'waiting'); });
+    currentStep.textContent = 'Not started.';
+  }
+
+  function markProgressError() {
+    STAGES.forEach(function (pair) {
+      var li = document.getElementById('progress-' + pair[0]);
+      if (li && li.dataset.state === 'working') setProgress(pair[0], 'error');
+    });
+  }
+
+  function describeProgress(stages, elapsedSuffix) {
+    var working = STAGES.filter(function (pair) { return stages[pair[0]] === 'working'; });
+    var doneCount = STAGES.filter(function (pair) { return stages[pair[0]] === 'done'; }).length;
+    var suffix = elapsedSuffix || '';
+    if (working.length) {
+      var label = '';
+      STAGES.forEach(function (pair) { if (pair[0] === working[0][0]) label = pair[1]; });
+      currentStep.textContent = 'Step ' + (doneCount + 1) + ' of ' + STAGES.length + ': ' + label + '.' + suffix;
+    } else if (doneCount === STAGES.length) {
+      currentStep.textContent = 'All ' + STAGES.length + ' steps finished.' + suffix;
+    } else if (suffix) {
+      currentStep.textContent = currentStep.textContent.replace(/ · .*s elapsed$/, '') + suffix;
+    }
   }
 
   function wait(ms) {
     return new Promise(function (resolve) { setTimeout(resolve, ms); });
   }
 
-  function setHealth(online) {
-    statusPill.classList.toggle('online', online);
-    statusPill.classList.toggle('offline', !online);
-    statusText.textContent = online ? 'API online' : 'API offline, demo mode';
+  function setHealth(state) {
+    statusPill.classList.toggle('online', state === 'connected');
+    statusPill.classList.toggle('offline', state !== 'connected');
+    if (state === 'connected') {
+      statusText.textContent = 'Connected';
+    } else if (state === 'key') {
+      statusText.textContent = 'Key configured';
+    } else if (state === 'conn-failed') {
+      statusText.textContent = 'Connection failed';
+    } else {
+      statusText.textContent = 'Demo mode';
+    }
+    keyRow.hidden = (state === 'connected');
+  }
+
+  function connDetail(data) {
+    if (!data) return '';
+    var out = [];
+    if (data.connection && data.connection.checked && data.connection.ok) {
+      out.push('API online' + (data.connection.models != null ? ' (' + data.connection.models + ' models)' : '') + '.');
+    } else if (data.connection && data.connection.checked && !data.connection.ok) {
+      out.push('Connection check failed: ' + (data.connection.error || 'unknown error'));
+    } else if (data.key && data.key.configured) {
+      out.push('Key configured; connection not checked yet.');
+    } else {
+      out.push('No key: preview only.');
+    }
+    ['ffmpeg', 'ffprobe'].forEach(function (tool) {
+      var info = data[tool];
+      if (info && info.available) {
+        out.push(tool + ' ok.');
+      } else if (info) {
+        out.push(tool + ' missing: ' + (info.error || 'not found'));
+      }
+    });
+    return out.join(' ');
   }
 
   async function checkHealth() {
-    addLog('Checking API health at GET /api/health…');
     try {
-      const response = await fetch('/api/health');
-      if (!response.ok) throw new Error('Health check returned HTTP ' + response.status);
-      const data = await response.json();
-      if (data && data.ok === true) {
-        setHealth(data.mode === 'live');
-        addLog(data.mode === 'live' ? 'API health check passed. API is online.' : 'API health check passed. No key set, demo mode shown in the status pill.', data.mode === 'live' ? 'success' : 'warn');
-      } else {
-        setHealth(false);
-        addLog('API health check did not confirm ok:true. Demo mode shown in the status pill.', 'warn');
+      var response = await fetch('/api/health');
+      var data = await response.json();
+      if (!data || data.ok !== true) {
+        setHealth('demo');
+        return;
+      }
+      var keyOn = !!(data.key && data.key.configured);
+      var connOn = !!(data.connection && data.connection.checked && data.connection.ok);
+      var connFailed = !!(keyOn && data.connection && data.connection.checked && !data.connection.ok);
+      setHealth(connOn ? 'connected' : (connFailed ? 'conn-failed' : (keyOn ? 'key' : 'demo')));
+      connLine.textContent = connDetail(data) || 'Connection information unavailable.';
+      if (data.connection && !data.connection.ok && data.connection.error) {
+        addLog('Status: ' + (keyOn ? 'key configured, ' : '') + 'connection failed: ' + data.connection.error, 'error');
       }
     } catch (error) {
-      setHealth(false);
-      addLog('API health check failed: ' + error.message + '. Status set to demo mode.', 'warn');
+      setHealth('demo');
+      connLine.textContent = 'Connection information unavailable.';
     }
   }
 
-  function renderScript(lines) {
-    scriptList.innerHTML = '';
+  async function loadStyleDefault() {
+    try {
+      var response = await fetch('/api/style');
+      var data = await response.json();
+      if (data && data.default && !styleInput.value) styleInput.value = data.default;
+    } catch (error) {
+      addLog('Style default did not load; type a style by hand or leave blank for the default.');
+    }
+  }
+
+  function renderPlanEditor(lines, mode) {
+    planLines = lines.slice();
+    planMode = mode;
+    planList.innerHTML = '';
+    var suffix = mode === 'demo-preview' ? 'example, not rendered' : 'live, editable';
     lines.forEach(function (text, index) {
-      const item = document.createElement('li');
-      item.className = 'script-line';
-      const number = document.createElement('span');
+      var item = document.createElement('li');
+      item.className = 'plan-line';
+      var number = document.createElement('span');
       number.className = 'line-number';
       number.textContent = String(index + 1);
-      const copy = document.createElement('span');
-      copy.className = 'line-text';
-      copy.textContent = text;
+      var area = document.createElement('textarea');
+      area.value = text;
+      area.dataset.planLine = String(index);
+      area.setAttribute('aria-label', 'Scene ' + (index + 1) + ' line');
+      if (mode === 'demo-preview') area.disabled = true;
       item.appendChild(number);
-      item.appendChild(copy);
-      scriptList.appendChild(item);
+      item.appendChild(area);
+      planList.appendChild(item);
     });
-    scriptEmpty.style.display = 'none';
-    scriptList.classList.add('visible');
-    scriptCount.textContent = lines.length + (lines.length === 1 ? ' line' : ' lines');
+    planEmpty.hidden = true;
+    planList.hidden = false;
+    planCount.textContent = '· ' + lines.length + (lines.length === 1 ? ' line' : ' lines') + ' · ' + suffix;
+    var live = mode !== 'demo-preview';
+    produceBtn.hidden = !live;
+    planHint.hidden = !live;
   }
 
-  function updateStoryboard(lines) {
-    for (let i = 0; i < 4; i++) {
-      const caption = document.getElementById('caption-' + (i + 1));
-      if (caption && lines[i]) {
-        const text = String(lines[i]).trim();
-        caption.textContent = text.length > 110 ? text.slice(0, 107) + '…' : text;
+  function readEditedPlan() {
+    var areas = planList.querySelectorAll('textarea[data-plan-line]');
+    var lines = [];
+    areas.forEach(function (area) {
+      var text = area.value.trim();
+      if (text) lines.push(text);
+    });
+    return lines;
+  }
+
+  var boardSig = '';
+
+  function sceneSig(scenes) {
+    return JSON.stringify((scenes || []).map(function (s) {
+      return [s.image, s.status, s.duration, s.dirty, s.dirty_reason,
+              s.provider, s.fallback,
+              s.sam ? [s.sam.matches, s.sam.concept, s.sam.warning] : null,
+              s.revision_status, s.before_narration, s.after_narration];
+    }));
+  }
+
+  function editingScene() {
+    var active = document.activeElement;
+    return !!(active && active.dataset && (active.dataset.sceneEdit !== undefined || active.dataset.planLine !== undefined));
+  }
+
+  function directorUnmetByScene(job) {
+    var map = {};
+    var list = (job && job.director && job.director.unmet_criteria) || [];
+    list.forEach(function (u) {
+      (map[u.scene_id] = map[u.scene_id] || []).push(u);
+    });
+    return map;
+  }
+
+  function renderStoryboard(job) {
+    var scenes = (job && job.scenes) || [];
+    var jobId = job && job.id;
+    var unmetByScene = directorUnmetByScene(job);
+    boardGrid.innerHTML = '';
+    boardEmpty.style.display = scenes.length ? 'none' : 'block';
+    scenes.forEach(function (scene) {
+      var card = document.createElement('article');
+      card.className = 'scene';
+      if (scene.image) {
+        var art = document.createElement('img');
+        art.src = scene.image;
+        art.alt = 'Scene ' + (scene.index + 1) + ' live render';
+        card.appendChild(art);
+      } else {
+        var hold = document.createElement('div');
+        hold.className = 'scene-placeholder';
+        hold.textContent = 'Placeholder: image not yet generated';
+        card.appendChild(hold);
       }
+      var body = document.createElement('div');
+      body.className = 'scene-body';
+      var title = document.createElement('p');
+      title.textContent = 'Scene ' + (scene.index + 1) + ' · Live result';
+      body.appendChild(title);
+      var area = document.createElement('textarea');
+      area.value = scene.narration || '';
+      area.dataset.sceneEdit = String(scene.index);
+      area.setAttribute('aria-label', 'Scene ' + (scene.index + 1) + ' narration');
+      body.appendChild(area);
+      var meta = document.createElement('p');
+      meta.className = 'scene-meta';
+      var bits = [];
+      bits.push('Length: ' + (typeof scene.duration === 'number' ? scene.duration.toFixed(1) + 's' : '—'));
+      bits.push('Image: ' + (scene.provider || 'muse-image-1.0'));
+      bits.push('Fallback: ' + (scene.fallback || 'none (Meta-only, fail-hard)'));
+      if (scene.sam && scene.sam.matches != null) {
+        bits.push('SAM: ' + scene.sam.matches + ' match' + (scene.sam.matches === 1 ? '' : 'es') +
+                  (scene.sam.concept ? ' (' + scene.sam.concept + ')' : ''));
+      }
+      if (scene.sam && scene.sam.warning) bits.push('SAM note: ' + scene.sam.warning);
+      meta.textContent = bits.join(' · ');
+      body.appendChild(meta);
+      var status = document.createElement('span');
+      status.className = 'scene-status';
+      var st = scene.dirty ? 'dirty' : (scene.status || 'waiting');
+      status.dataset.state = (st === 'done' || st === 'error' || st === 'dirty' || st === 'interrupted' || st === 'cancelled') ? st : 'working';
+      if (['waiting', 'image ready', 'checked', 'voiced'].indexOf(st) !== -1) status.dataset.state = 'working';
+      var dot = document.createElement('span');
+      dot.className = 'state-dot';
+      status.appendChild(dot);
+      var label = document.createElement('span');
+      label.textContent = scene.dirty ? 'Dirty: needs regeneration' : st;
+      status.appendChild(label);
+      body.appendChild(status);
+      if (scene.dirty && scene.dirty_reason) {
+        var dirty = document.createElement('p');
+        dirty.className = 'scene-dirty';
+        dirty.textContent = scene.dirty_reason;
+        body.appendChild(dirty);
+      }
+      if (scene.revision_status && scene.revision_status !== 'planned') {
+        var rev = document.createElement('p');
+        rev.className = 'director-line';
+        var crit = (scene.revision_criteria || []).join(', ') || 'director review';
+        rev.textContent = 'Director: ' + scene.revision_status + ' (' + crit + ').' +
+          (scene.before_narration ? ' Narration was: "' + scene.before_narration + '" now: "' + (scene.after_narration || scene.narration) + '".' : '') +
+          (scene.before_visual ? ' Visual was: "' + scene.before_visual + '" now: "' + (scene.after_visual || '') + '".' : '');
+        body.appendChild(rev);
+      }
+      (unmetByScene[scene.scene_id] || []).forEach(function (u) {
+        var un = document.createElement('p');
+        un.className = 'director-unmet';
+        un.textContent = 'Director unresolved (' + u.criterion + '): ' + u.detail + ' Editorial review did not pass for this scene.';
+        body.appendChild(un);
+      });
+      var row = document.createElement('div');
+      row.className = 'scene-row';
+      var save = document.createElement('button');
+      save.type = 'button';
+      save.className = 'scene-btn';
+      save.textContent = 'Save narration';
+      save.addEventListener('click', function () { saveScene(jobId, scene.index, area.value, save); });
+      var regen = document.createElement('button');
+      regen.type = 'button';
+      regen.className = 'scene-btn';
+      regen.textContent = 'Regenerate image';
+      regen.addEventListener('click', function () { regenScene(jobId, scene.index, regen); });
+      row.appendChild(save);
+      row.appendChild(regen);
+      body.appendChild(row);
+      card.appendChild(body);
+      boardGrid.appendChild(card);
+    });
+    boardCount.textContent = scenes.length ? '· ' + scenes.length + (scenes.length === 1 ? ' scene · live' : ' scenes · live') : '';
+    boardSig = sceneSig(scenes);
+  }
+
+  function renderExampleBoard(lines) {
+    boardGrid.innerHTML = '';
+    boardEmpty.style.display = 'none';
+    lines.forEach(function (text, index) {
+      var card = document.createElement('article');
+      card.className = 'scene';
+      var hold = document.createElement('div');
+      hold.className = 'scene-placeholder';
+      hold.textContent = 'Example preview: no image without a key';
+      card.appendChild(hold);
+      var body = document.createElement('div');
+      body.className = 'scene-body';
+      var title = document.createElement('p');
+      title.textContent = 'Scene ' + (index + 1) + ' · Example, not rendered';
+      body.appendChild(title);
+      var caption = document.createElement('p');
+      caption.textContent = text;
+      body.appendChild(caption);
+      card.appendChild(body);
+      boardGrid.appendChild(card);
+    });
+    boardCount.textContent = '· ' + lines.length + (lines.length === 1 ? ' scene · example' : ' scenes · example');
+    boardSig = 'example';
+  }
+
+  function addDecision(icon, cls, text) {
+    var li = document.createElement('li');
+    var glyph = document.createElement('span');
+    glyph.className = 'material-symbols-outlined ' + cls;
+    glyph.setAttribute('aria-hidden', 'true');
+    glyph.textContent = icon;
+    var copy = document.createElement('span');
+    copy.textContent = text;
+    li.appendChild(glyph);
+    li.appendChild(copy);
+    decisionList.appendChild(li);
+  }
+
+  function renderDirector(job, failed) {
+    decisionList.innerHTML = '';
+    directorEmpty.style.display = 'none';
+    var log = job && job.director;
+    if (log && log.brief) {
+      addDecision('info', 'info', 'Brief: "' + log.brief.topic + '" for ' + log.brief.audience + ', target ' + log.brief.target_duration_s + 's.');
+    } else if (job && job.brief && job.brief.topic) {
+      addDecision('info', 'info', 'Brief: "' + job.brief.topic + '", format ' + (job.brief.aspect_ratio || job.aspect_ratio || selectedAspect()) + '.');
+    }
+    var attempts = (log && log.attempts) || [];
+    attempts.forEach(function (a) {
+      if (a.status === 'revised') {
+        addDecision('check_circle', 'ok', 'Scene ' + a.scene_id + ' revised (' + (a.criteria || []).join(', ') + ').');
+      } else if (a.error) {
+        addDecision('error', 'bad', 'Scene ' + a.scene_id + ' could not be revised: ' + a.error);
+      }
+    });
+    var unmet = (log && log.unmet_criteria) || [];
+    unmet.forEach(function (u) {
+      addDecision('warning', 'warn', 'Unresolved: ' + u.scene_id + ' still fails ' + u.criterion + '. Not passed.');
+    });
+    if (log && log.editorial_pass) {
+      addDecision('check_circle', 'ok', 'Director review passed (' + attempts.length + ' revision(s)).');
+    } else if (log && !log.editorial_pass) {
+      addDecision('warning', 'warn', 'Director review did not fully pass.');
+    }
+    var qc = job && job.qc;
+    if (qc) {
+      if (qc.captions) {
+        var bad = qc.captions.filter(function (c) { return !c.clean; });
+        if (bad.length) {
+          addDecision('error', 'bad', 'Captions need attention in scene(s): ' + bad.map(function (c) { return c.scene + 1; }).join(', ') + '.');
+        } else {
+          addDecision('check_circle', 'ok', 'Captions verified for all ' + qc.captions.length + ' scenes.');
+        }
+      }
+      var dims = qc.video ? qc.video.split(' ')[0] : null;
+      var expected = qc.expected_dimensions;
+      if (dims && expected) {
+        if (dims === expected) {
+          addDecision('check_circle', 'ok', 'Output ' + dims + ' matches ' + (qc.aspect_ratio || 'selected format') + '.');
+        } else {
+          addDecision('error', 'bad', 'Output ' + dims + ' does not match ' + expected + ' (' + (qc.aspect_ratio || 'selected format') + ').');
+        }
+      }
+    }
+    if (failed) {
+      addDecision('error', 'bad', 'Production failed: ' + failed);
+    }
+    if (!decisionList.children.length) {
+      directorEmpty.style.display = 'block';
+      directorEmpty.textContent = 'Working: decisions and checks appear here as each step finishes.';
     }
   }
 
-  async function handleGenerate(event) {
-    event.preventDefault();
-    const topic = topicInput.value.trim();
+  function formatDims(job) {
+    var aspect = (job && (job.aspect_ratio || (job.brief && job.brief.aspect_ratio))) || selectedAspect();
+    var dims = DIMS[aspect] || DIMS['9:16'];
+    var w = (job && job.width) || dims[0];
+    var h = (job && job.height) || dims[1];
+    var name = aspect === '9:16' ? 'Vertical 9:16' : 'Wide 16:9';
+    return { aspect: aspect, label: name + ' · ' + w + '×' + h + ' MP4' };
+  }
 
+  async function saveScene(jobId, index, narration, btn) {
+    if (!jobId) return;
+    btn.disabled = true;
+    try {
+      var response = await fetch('/api/job/' + jobId + '/scene/' + index, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ narration: narration })
+      });
+      var data = await response.json();
+      if (!response.ok) throw new Error((data && data.error) || 'save failed');
+      addLog('Scene ' + (index + 1) + ': narration ' + (data.plan || 'saved') + '.', 'success');
+      if (data.scene && data.scene.dirty_reason) addLog('Scene ' + (index + 1) + ' dirty: ' + data.scene.dirty_reason);
+      refreshBoard(jobId);
+    } catch (error) {
+      addLog('Scene ' + (index + 1) + ' save failed: ' + error.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function regenScene(jobId, index, btn) {
+    if (!jobId) return;
+    btn.disabled = true;
+    btn.textContent = 'Regenerating';
+    try {
+      var response = await fetch('/api/job/' + jobId + '/scene/' + index + '/regenerate', { method: 'POST' });
+      var data = await response.json();
+      if (!response.ok) throw new Error((data && data.error) || 'regenerate failed');
+      addLog('Scene ' + (index + 1) + ': image regenerated (this scene only).', 'success');
+      if (data.note) addLog(data.note);
+      refreshBoard(jobId);
+    } catch (error) {
+      addLog('Scene ' + (index + 1) + ' regenerate failed: ' + error.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Regenerate image';
+    }
+  }
+
+  async function refreshBoard(jobId) {
+    try {
+      var poll = await fetch('/api/job/' + jobId);
+      var job = await poll.json();
+      if (job && job.scenes) renderStoryboard(job);
+    } catch (error) {
+      addLog('Storyboard refresh failed: ' + error.message, 'error');
+    }
+  }
+
+  sampleBtn.addEventListener('click', async function () {
+    try {
+      var response = await fetch('/api/sample');
+      var data = await response.json();
+      if (data && data.topic) topicInput.value = data.topic;
+    } catch (error) {
+      showProblem('The sample did not load.', 'Type a topic by hand instead.');
+    }
+  });
+
+  keyBtn.addEventListener('click', async function () {
+    var key = keyInput.value.trim();
+    if (!key) {
+      showProblem('No key was entered.', 'Paste your key, then save.');
+      return;
+    }
+    try {
+      var response = await fetch('/api/key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: key })
+      });
+      var data = await response.json();
+      if (!response.ok || !data || data.ok !== true) throw new Error('rejected');
+      keyInput.value = '';
+      clearProblem();
+      addLog('Key saved for this session.', 'success');
+      checkHealth();
+    } catch (error) {
+      showProblem('The key was not saved.', 'Check the key and try again.');
+    }
+  });
+
+  planForm.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    var topic = topicInput.value.trim();
     if (!topic) {
-      addLog('Generate stopped: enter a video topic before running the pipeline.', 'error');
+      showProblem('A topic is needed first.', 'Type a topic in the brief.');
       topicInput.focus();
       return;
     }
-
-    generateBtn.disabled = true;
-    generateBtnText.textContent = 'Generating…';
-    resetStages();
-    videoSection.style.display = 'none';
-    addLog('Topic received: "' + topic + '"');
-    setStage('script', 'working');
-    addLog('Script stage working. Requesting script from POST /api/script…');
-
+    planBtn.disabled = true;
+    planBtnText.textContent = 'Planning';
+    clearProblem();
+    setJobState('planning', 'Planning scenes.');
+    showPreviewMessage('loading', 'progress_activity', '<strong>Planning scenes.</strong><br>Writing the script and the scene plan.');
+    currentStep.textContent = 'Planning: writing the script.';
     try {
-      const response = await fetch('/api/script', {
+      var response = await fetch('/api/script', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic: topic })
       });
-
-      if (!response.ok) {
-        throw new Error('Script request failed with HTTP ' + response.status);
+      var data = await response.json();
+      if (!response.ok || !data || !Array.isArray(data.script) || !data.script.length) {
+        throw new Error((data && data.error) || 'script failed');
       }
-
-      const data = await response.json();
-      if (!data || !Array.isArray(data.script) || data.script.length === 0) {
-        throw new Error('Script response did not include any script lines.');
+      var lines = data.script.map(function (line) { return String(line); });
+      renderPlanEditor(lines, data.mode);
+      if (data.mode === 'demo-preview') {
+        addLog(data.note || 'Preview only. No video without a key.', 'warn');
+        showProblem('This is a preview only.', 'Paste your key in the brief for a real video.');
+        showPreviewMessage('empty', 'movie', '<strong>Preview only.</strong><br>Add your key to produce a real video.');
+        renderExampleBoard(lines);
+        setJobState('empty', 'Preview only. No video without a key.');
+        currentStep.textContent = 'Not started.';
+      } else {
+        addLog('Scene plan ready: ' + lines.length + ' lines. Review and edit, then produce.', 'success');
+        showPreviewMessage('plan', 'rate_review', '<strong>Plan ready.</strong><br>Review the lines below, edit anything, then press Produce video.');
+        setJobState('plan-ready', 'Scene plan ready. Review and edit, then produce.');
+        currentStep.textContent = 'Plan ready: review the lines, then produce.';
       }
+    } catch (error) {
+      var message = String((error && error.message) || 'planning failed');
+      showProblem('The plan could not be made.', 'Check the technical details, then try again.');
+      showPreviewMessage('error', 'error', '<strong>Planning failed.</strong><br>' + message);
+      setJobState('error', 'Planning failed.');
+      addLog('Planning stopped: ' + message, 'error');
+      currentStep.textContent = 'Planning failed.';
+    } finally {
+      planBtn.disabled = false;
+      planBtnText.textContent = '1. Plan scenes';
+    }
+  });
 
-      const lines = data.script.map(function (line) { return String(line); });
-      addLog('Script requested and returned ' + lines.length + (lines.length === 1 ? ' line.' : ' lines.'), 'success');
-      renderScript(lines);
-      addLog('Script rendered in numbered order for narration.');
-      updateStoryboard(lines);
+  function markProgressLeft(state) {
+    STAGES.forEach(function (pair) {
+      var li = document.getElementById('progress-' + pair[0]);
+      if (li && li.dataset.state === 'working') setProgress(pair[0], state);
+    });
+  }
 
-      addLog('Starting real render job at POST /api/video…');
-      const jobResponse = await fetch('/api/video', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: topic, script: lines })
-      });
-      if (jobResponse.status === 409) {
-        throw new Error('A render is already running. Wait for it to finish, then generate again.');
+  function syncProgressPills(job, seen) {
+    STAGES.forEach(function (pair) {
+      var state = job.stages && job.stages[pair[0]];
+      if (state && (!seen || seen[pair[0]] !== state)) {
+        if (seen) seen[pair[0]] = state;
+        setProgress(pair[0], state);
       }
-      if (!jobResponse.ok) {
-        throw new Error('Render job failed to start with HTTP ' + jobResponse.status);
-      }
-      const jobData = await jobResponse.json();
-      const jobId = jobData.job_id;
-      addLog('Render job started: ' + jobId + '. Polling real stage progress…');
+    });
+  }
 
-      const seen = {};
+  function showFinishedJob(job, fallbackAspect) {
+    STAGES.forEach(function (pair) { setProgress(pair[0], 'done'); });
+    currentStep.textContent = 'All ' + STAGES.length + ' steps finished.' + formatElapsed(job);
+    setPreviewAspect(job.aspect_ratio || fallbackAspect || '9:16');
+    outputVideo.src = job.video;
+    showPreviewVideo();
+    var info = formatDims(job);
+    var metaBits = [info.label];
+    if (job.qc && typeof job.qc.duration === 'number') metaBits.push(job.qc.duration.toFixed(1) + 's');
+    if (job.qc && job.qc.audio) metaBits.push('voice audible');
+    if (job.qc && job.qc.captions_ok) metaBits.push('captions verified');
+    previewMeta.innerHTML = '';
+    var dl = document.createElement('a');
+    dl.href = job.video;
+    dl.setAttribute('download', '');
+    dl.textContent = 'Download video';
+    previewMeta.appendChild(dl);
+    var rest = document.createElement('span');
+    rest.textContent = '  ' + metaBits.join(' · ') + '.';
+    previewMeta.appendChild(rest);
+    previewMeta.hidden = false;
+    qcFull.textContent = JSON.stringify(job.qc, null, 2);
+    qcFull.hidden = false;
+    renderStoryboard(job);
+    renderDirector(job, null);
+    if (job.video_stale) addLog('Note: a scene changed after this video was built; the video is stale for that scene.');
+    if (job.revision_note) addLog('Revision note: ' + job.revision_note);
+    (job.qc && job.qc.decisions || []).forEach(function (entry) {
+      addLog('Decision: ' + entry.decision);
+    });
+    addLog('Video ready in the preview.', 'success');
+    retryBtn.hidden = true;
+    setJobState('done', 'Video ready.');
+  }
+
+  function showFailedJob(job) {
+    markProgressError();
+    STAGES.forEach(function (pair) {
+      if (job.stages && job.stages[pair[0]] === 'error') setProgress(pair[0], 'error');
+    });
+    if (job.scenes && job.scenes.length) renderStoryboard(job);
+    renderDirector(job, job.error || 'production failed');
+    currentStep.textContent = 'Production failed.' + formatElapsed(job);
+    showPreviewMessage('error', 'error', '<strong>Production failed.</strong><br>' + (job.error || 'production failed') + '<br>Retry re-renders from the stored plan.');
+    addLog('Production stopped: ' + (job.error || 'production failed'), 'error');
+    retryBtn.hidden = false;
+    setJobState('error', 'Production failed.');
+  }
+
+  function showCancelledJob(job) {
+    markProgressLeft('cancelled');
+    STAGES.forEach(function (pair) {
+      if (job.stages && job.stages[pair[0]] === 'cancelled') setProgress(pair[0], 'cancelled');
+    });
+    if (job.scenes && job.scenes.length) renderStoryboard(job);
+    renderDirector(job, job.error || 'production cancelled');
+    currentStep.textContent = 'Production cancelled.' + formatElapsed(job);
+    showPreviewMessage('error', 'cancel', '<strong>Production cancelled.</strong><br>' + (job.error || 'Stopped at a stage boundary.') + '<br>Retry re-renders from the stored plan.');
+    addLog('Production cancelled: ' + (job.error || 'stopped at a stage boundary'), 'error');
+    retryBtn.hidden = false;
+    setJobState('cancelled', 'Production cancelled.');
+  }
+
+  function showInterruptedJob(job) {
+    markProgressLeft('interrupted');
+    STAGES.forEach(function (pair) {
+      if (job.stages && job.stages[pair[0]] === 'interrupted') setProgress(pair[0], 'interrupted');
+    });
+    if (job.scenes && job.scenes.length) renderStoryboard(job);
+    renderDirector(job, job.interrupt_reason || 'production interrupted');
+    currentStep.textContent = 'Production interrupted by a server restart.' + formatElapsed(job);
+    var kept = (job.preserved && job.preserved.length) ? job.preserved.join(', ') : 'no finished files';
+    showPreviewMessage('error', 'warning', '<strong>Interrupted by a server restart.</strong><br>' + (job.interrupt_reason || '') + '<br>Kept on disk: ' + kept + '.<br>' + (job.must_rerun || 'Retry re-renders from the stored plan.'));
+    addLog('Production interrupted: ' + (job.interrupt_reason || 'server restarted mid-stage'), 'error');
+    addLog('Kept on disk: ' + kept + '.');
+    if (job.must_rerun) addLog(job.must_rerun);
+    retryBtn.hidden = false;
+    setJobState('interrupted', 'Production interrupted.');
+  }
+
+  async function followJob(jobId, fallbackAspect) {
+    rememberJob(jobId);
+    cancelBtn.hidden = false;
+    cancelHint.hidden = false;
+    retryBtn.hidden = true;
+    var seen = {};
+    var misses = 0;
+    try {
       while (true) {
         await wait(1000);
-        const poll = await fetch('/api/job/' + jobId);
-        if (!poll.ok) {
-          throw new Error('Job poll failed with HTTP ' + poll.status);
+        var poll = null;
+        try {
+          poll = await fetch('/api/job/' + jobId);
+        } catch (fetchError) {
+          poll = null;
         }
-        const job = await poll.json();
-        stageKeys.forEach(function (key) {
-          const state = job.stages[key];
-          if (state && seen[key] !== state) {
-            seen[key] = state;
-            setStage(key, state);
-            if (state === 'working') addLog(key + ' stage working…');
-            if (state === 'done') addLog(key + ' stage done.', 'success');
-            if (state === 'error') addLog(key + ' stage failed.', 'error');
+        if (!poll || !poll.ok) {
+          if (poll && poll.status === 404) {
+            showPreviewMessage('error', 'error', '<strong>Job not found on the server.</strong><br>It may predate job persistence. Start a new production.');
+            addLog('Follow stopped: job ' + jobId + ' is unknown on the server.', 'error');
+            setJobState('error', 'Job not found.');
+            break;
           }
-        });
+          misses += 1;
+          if (misses >= 120) {
+            showPreviewMessage('error', 'error', '<strong>Lost contact with the console.</strong><br>The server may have restarted. Reload the page: the job restores from disk.');
+            addLog('Lost contact with the console while following job ' + jobId + '.', 'error');
+            setJobState('error', 'Lost contact with the console.');
+            break;
+          }
+          currentStep.textContent = 'Reconnecting to the console (' + misses + 's).';
+          continue;
+        }
+        misses = 0;
+        var job = await poll.json();
+        syncProgressPills(job, seen);
+        describeProgress(job.stages || {}, formatElapsed(job));
+        showPreviewMessage('loading', 'progress_activity', '<strong>Producing your video.</strong><br>' + currentStep.textContent);
+        if (job && job.scenes && job.scenes.length) {
+          if (sceneSig(job.scenes) !== boardSig && !editingScene()) renderStoryboard(job);
+        }
+        renderDirector(job, null);
         if (job.status === 'done') {
-          outputVideo.src = job.video;
-          downloadLink.href = job.video;
-          qcReport.textContent = job.qc
-            ? '  QC passed: ' + job.qc.duration.toFixed(1) + 's, ' + job.qc.video + ', audio ' + job.qc.audio + ', images ' + (job.qc.image_backend || 'unknown') + '.'
-            : '';
-          videoSection.style.display = 'block';
-          addLog('Pipeline complete: finished video ready below.', 'success');
+          showFinishedJob(job, fallbackAspect);
           break;
         }
         if (job.status === 'error') {
-          throw new Error(job.error || 'Render job failed.');
+          showFailedJob(job);
+          break;
+        }
+        if (job.status === 'cancelled') {
+          showCancelledJob(job);
+          break;
+        }
+        if (job.status === 'interrupted') {
+          showInterruptedJob(job);
+          break;
         }
       }
-    } catch (error) {
-      addLog('Error: ' + error.message, 'error');
-      addLog('Pipeline stopped. Stages above show exactly how far the real run got.', 'error');
     } finally {
-      generateBtn.disabled = false;
-      generateBtnText.textContent = 'Generate';
+      cancelBtn.hidden = true;
+      cancelHint.hidden = true;
     }
   }
 
-  form.addEventListener('submit', handleGenerate);
-  addLog('ReelDirector console ready. Waiting for a topic.');
+  async function restoreLastJob() {
+    var id = null;
+    try {
+      id = localStorage.getItem(LAST_JOB_KEY);
+    } catch (storageError) {
+      id = null;
+    }
+    if (!id) return;
+    var resp = null;
+    try {
+      resp = await fetch('/api/job/' + id);
+    } catch (fetchError) {
+      return;
+    }
+    if (!resp.ok) return;
+    var job = await resp.json();
+    if (!job || !job.status) return;
+    if (job.status === 'running' || job.status === 'queued') {
+      resetProgress();
+      addLog('Restored production ' + id + ' after a page refresh. Reattaching to the live run.', 'success');
+      setJobState('producing', 'Production restored.');
+      setPreviewAspect(job.aspect_ratio || selectedAspect());
+      produceBtn.disabled = true;
+      planBtn.disabled = true;
+      produceBtnText.textContent = 'Producing';
+      try {
+        await followJob(id, job.aspect_ratio);
+      } finally {
+        produceBtn.disabled = false;
+        planBtn.disabled = false;
+        produceBtnText.textContent = '2. Produce video';
+      }
+      return;
+    }
+    resetProgress();
+    syncProgressPills(job, null);
+    if (job.scenes && job.scenes.length) renderStoryboard(job);
+    renderDirector(job, job.error || job.interrupt_reason || null);
+    if (job.status === 'done') {
+      showFinishedJob(job);
+      addLog('Restored finished production ' + id + ' after a page refresh.', 'success');
+      setJobState('done', 'Production restored.');
+    } else if (job.status === 'error') {
+      showFailedJob(job);
+      addLog('Restored failed production ' + id + ' after a page refresh.', 'error');
+    } else if (job.status === 'cancelled') {
+      showCancelledJob(job);
+      addLog('Restored cancelled production ' + id + ' after a page refresh.', 'error');
+    } else if (job.status === 'interrupted') {
+      showInterruptedJob(job);
+      addLog('Restored interrupted production ' + id + ' after a page refresh.', 'error');
+    }
+  }
+
+  cancelBtn.addEventListener('click', async function () {
+    if (!currentJobId) return;
+    cancelBtn.disabled = true;
+    try {
+      var resp = await fetch('/api/job/' + currentJobId + '/cancel', { method: 'POST' });
+      var data = await resp.json();
+      if (!resp.ok) throw new Error((data && data.error) || 'cancel failed');
+      addLog('Cancellation requested. ' + (data.note || 'The job stops at the next stage boundary.'));
+    } catch (error) {
+      addLog('Cancel failed: ' + error.message, 'error');
+    } finally {
+      cancelBtn.disabled = false;
+    }
+  });
+
+  retryBtn.addEventListener('click', async function () {
+    if (!currentJobId) return;
+    retryBtn.disabled = true;
+    try {
+      var resp = await fetch('/api/job/' + currentJobId + '/retry', { method: 'POST' });
+      var data = await resp.json();
+      if (!resp.ok) throw new Error((data && data.error) || 'retry failed');
+      clearProblem();
+      resetProgress();
+      previewMeta.hidden = true;
+      qcFull.hidden = true;
+      outputVideo.removeAttribute('src');
+      outputVideo.load();
+      retryBtn.hidden = true;
+      produceBtn.disabled = true;
+      planBtn.disabled = true;
+      produceBtnText.textContent = 'Producing';
+      setJobState('producing', 'Retrying production.');
+      setPreviewAspect(selectedAspect());
+      addLog('Retrying production ' + currentJobId + ' from the stored plan (full re-run).', 'success');
+      await followJob(currentJobId, selectedAspect());
+    } catch (error) {
+      addLog('Retry failed: ' + error.message, 'error');
+      showProblem('The retry could not start.', error.message);
+    } finally {
+      retryBtn.disabled = false;
+      produceBtn.disabled = false;
+      planBtn.disabled = false;
+      produceBtnText.textContent = '2. Produce video';
+    }
+  });
+
+  produceBtn.addEventListener('click', async function () {
+    var topic = topicInput.value.trim();
+    var lines = readEditedPlan();
+    if (!lines.length) {
+      showProblem('The scene plan is empty.', 'Plan scenes first, keeping at least one line.');
+      return;
+    }
+    var style = styleInput.value.trim();
+    var audience = audienceInput.value.trim();
+    var targetRaw = durationInput.value;
+    var target = null;
+    if (targetRaw !== '' && targetRaw != null) {
+      target = Number(targetRaw);
+      if (!isFinite(target) || target <= 0) {
+        showProblem('The target length must be a positive number of seconds.', 'Fix it in the brief, or leave it empty for auto.');
+        durationInput.focus();
+        return;
+      }
+    }
+    var aspect = selectedAspect();
+    setPreviewAspect(aspect);
+    produceBtn.disabled = true;
+    planBtn.disabled = true;
+    produceBtnText.textContent = 'Producing';
+    clearProblem();
+    resetProgress();
+    previewMeta.hidden = true;
+    qcFull.hidden = true;
+    outputVideo.removeAttribute('src');
+    outputVideo.load();
+    setJobState('producing', 'Producing video.');
+    showPreviewMessage('loading', 'progress_activity', '<strong>Producing your video.</strong><br>Images, voice, and assembly run now.');
+    renderDirector({ brief: { topic: topic, aspect_ratio: aspect } }, null);
+    try {
+      var body = { topic: topic, script: lines, aspect_ratio: aspect };
+      if (style) body.style = style;
+      if (audience) body.audience = audience;
+      if (target != null) body.target_duration_s = target;
+      var jobResponse = await fetch('/api/video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      var jobData = await jobResponse.json();
+      if (!jobResponse.ok) {
+        var startMessage = String((jobData && jobData.error) || 'start failed');
+        if (startMessage.indexOf('already running') !== -1) {
+          showProblem('A production is already running.', 'Wait for it to finish, then try again.');
+        } else if (startMessage.indexOf('No Meta API key') !== -1) {
+          showProblem('No Meta API key found.', 'Paste your key in the brief.');
+        } else {
+          showProblem('The production could not start.', 'Open technical details, then try again.');
+        }
+        addLog('Start stopped: ' + startMessage, 'error');
+        showPreviewMessage('error', 'error', '<strong>Could not start.</strong><br>' + startMessage);
+        setJobState('error', 'Production could not start.');
+        return;
+      }
+      var jobId = jobData.job_id;
+      addLog('Production running (' + aspect + ').', 'success');
+      await followJob(jobId, aspect);
+    } catch (error) {
+      var message = String((error && error.message) || 'production failed');
+      markProgressError();
+      showPreviewMessage('error', 'error', '<strong>Production failed.</strong><br>' + message);
+      showProblem('The production failed before finishing.', 'Open technical details, then try again.');
+      addLog('Production stopped: ' + message, 'error');
+      setJobState('error', 'Production failed.');
+      currentStep.textContent = 'Production failed.';
+    } finally {
+      produceBtn.disabled = false;
+      planBtn.disabled = false;
+      produceBtnText.textContent = '2. Produce video';
+    }
+  });
+
   checkHealth();
+  loadStyleDefault();
+  setPreviewAspect(selectedAspect());
+  restoreLastJob();
 </script>
 </body>
 </html>
