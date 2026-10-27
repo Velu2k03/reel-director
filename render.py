@@ -4,19 +4,19 @@ Implements the topic -> video path inside the event repo:
   scenes (narration lines) -> Pollinations images -> voice
   (edge-tts, gTTS fallback) -> ffmpeg assembly -> QC.
 
-Design lineage is declared in the repo README: the Oct 14 starter kit
-proved this shape, but this module is event-window code. Two deliberate
-differences from that base:
+Two deliberate design rules in this module:
   1. CAPTION FIX: every segment carries ONLY its own caption, with
-     zero-based timestamps. The base burned the full subtitle file
-     (absolute timestamps) into every segment, so every scene showed
-     scene 1's caption. That bug is fixed here by construction.
+     zero-based timestamps. Burning a full subtitle file with
+     absolute timestamps into every segment would make every scene
+     show scene 1's caption, so that is avoided here by construction.
   2. REAL QC: the finished file is probed (duration, video stream,
      audio stream, audibility) and the run fails loudly if any
      check fails, instead of marking stages done on hope.
 
 Non-Meta components are disclosed, not hidden: voice comes from
-edge-tts/gTTS, because Meta offers no batch text-to-speech API. Images
+edge-tts/gTTS, because the Meta Model API has no hosted
+text-to-speech endpoint. Its voice model transcribes speech to
+text, the opposite direction. Images
 are Meta muse-image-1.0 in live mode (key present), with Pollinations
 as the fallback when Meta fails and as the backend in demo mode
 (no key). The script step (Meta muse-spark-1.3) lives in app.py.
