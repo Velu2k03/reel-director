@@ -16,7 +16,8 @@ Covers Phase D scope only:
   - failed-stage reporting (failed, never endlessly working)
   - job restoration (refresh restores progress; restart marks
     interrupted jobs with preserved work and a re-run path)
-  - caption failure handling (fail-hard, QC must not fully pass)
+  - no captions: missing output still fails QC, with no caption
+    failure mode anywhere (owner decision Oct 27)
   - aspect-ratio propagation (format drives dims and QC)
   - duplicate protection (second render rejected, edits during a
     run rejected)
@@ -213,18 +214,23 @@ def check_failed_stage_reporting():
     job_id = None
     try:
         with mock.patch.object(app, "VIDEOS_DIR", tmpv), \
-             mock.patch.object(app, "draft_script",
+             mock.patch.object(render, "generate_images",
                                side_effect=RuntimeError(
-                                   "mocked Spark down")):
-            resp = client.post("/api/video", json={"topic": "Anything"})
+                                   "mocked Image down")):
+            resp = client.post("/api/video", json={
+                "topic": "Anything",
+                "script": ["Alpha line.", "Beta line."],
+                "visuals": ["alpha visual", "beta visual"]})
             assert resp.status_code == 200, resp.get_data(as_text=True)
             job_id = resp.get_json()["job_id"]
             job = _wait_for(client, job_id)
             assert job["status"] == "error", job
-            assert job["stages"]["script"] == "error", job["stages"]
+            assert job["stages"]["script"] == "done", job["stages"]
+            assert job["stages"]["revise"] == "done", job["stages"]
+            assert job["stages"]["scenes"] == "error", job["stages"]
             assert not [k for k, v in job["stages"].items()
                         if v == "working"], job["stages"]
-            assert "mocked Spark down" in job["error"], job
+            assert "mocked Image down" in job["error"], job
             assert FAKE_KEY not in job["error"], "key leaked into error"
             assert job["finished_at"], job
             assert isinstance(job["elapsed_s"], (int, float)), job
@@ -329,21 +335,28 @@ def check_job_restoration():
         assert fetched["preserved"] == live["preserved"], fetched
         listed = client.get("/api/jobs").get_json()["jobs"]
         assert {j["id"] for j in listed} >= {done_id, live_id}, listed
-        # Retry of the interrupted job is accepted (it re-renders;
-        # here the render fails fast on the mocked Spark error).
+        # Retry of the interrupted job is accepted (it re-renders
+        # from the stored approved plan with no re-revision; here
+        # the render fails fast on the mocked pipeline error).
+        # The interrupted snapshot has no visuals stored, so give
+        # it approved visuals first, like a real approval would.
+        with app.JOBS_LOCK:
+            for rec in app.JOBS[live_id]["scenes"]:
+                if not rec.get("visual_prompt"):
+                    rec["visual_prompt"] = "mocked visual"
         old_key = app._MEMORY_KEY["key"]
         app._MEMORY_KEY["key"] = FAKE_KEY
         try:
-            with mock.patch.object(app, "_spark_critique_raw",
+            with mock.patch.object(render, "run_pipeline",
                                    side_effect=RuntimeError(
-                                       "mocked Spark down again")):
+                                       "mocked render down again")):
                 resp = client.post("/api/job/%s/retry" % live_id)
                 assert resp.status_code == 200, \
                     resp.get_data(as_text=True)
                 job = _wait_for(client, live_id)
                 assert job["status"] == "error", job
                 assert job["retries"] == 1, job
-                assert "mocked Spark down again" in job["error"], job
+                assert "mocked render down again" in job["error"], job
                 assert job.get("interrupted") is False, job
         finally:
             app._MEMORY_KEY["key"] = old_key
@@ -358,34 +371,23 @@ def check_job_restoration():
           "running jobs interrupted with preserved files; retry re-runs")
 
 
-def check_caption_failure_fails_hard():
-    tmp = tempfile.mkdtemp(prefix="phase-d-captions-")
+def check_no_caption_failure_mode():
+    tmp = tempfile.mkdtemp(prefix="phase-d-nocap-")
     try:
-        scenes = [{"narration": "River valleys widen over time."},
-                  {"narration": "Sediment settles on the valley floor."}]
-        # Missing subtitle files: not ok, never a silent pass.
-        records, ok = render.verify_captions(scenes, tmp)
-        assert ok is False, records
-        assert os.path.exists(os.path.join(tmp, "final_x.mp4")) is False
+        # No finished file at all: QC still fails, but never for
+        # captions (there is no caption requirement anymore).
         report = render.qc_report(
-            os.path.join(tmp, "final_x.mp4"), captions=records,
-            captions_ok=ok, aspect_ratio="9:16")
+            os.path.join(tmp, "final_x.mp4"), aspect_ratio="9:16")
         assert report["passed"] is False, report
-        assert "caption_error" in report, report
-        assert report["technical"]["captions_ok"] is False, report
-        # No finished file at all: QC still fails even when caption
-        # evidence claims to be present (nothing was rendered).
-        good = [{"scene": 0, "srt": "scene_0.srt",
-                 "has_own_caption": True, "clean": True}]
-        report2 = render.qc_report(
-            os.path.join(tmp, "final_x.mp4"), captions=good,
-            captions_ok=True, aspect_ratio="9:16")
-        assert report2["passed"] is False, report2
-        assert "caption_error" in report2, report2
+        assert "caption_error" not in report, report
+        assert "captions" not in report, report
+        assert "captions_ok" not in report.get("technical", {}), report
+        assert not hasattr(render, "verify_captions"), \
+            "verify_captions still present"
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-    print("MOCKED PASS: caption failure fails hard; QC never fully "
-          "passes without caption evidence")
+    print("MOCKED PASS: missing output still fails QC, with no "
+          "caption failure mode anywhere")
 
 
 def check_aspect_propagation():
@@ -426,8 +428,9 @@ def check_duplicate_protection():
             "style": None, "aspect_ratio": "9:16",
             "out_dir": "/tmp/nope-phase-d-dup"}
     try:
-        resp = client.post("/api/video", json={"topic": "Second",
-                                               "script": ["A.", "B."]})
+        resp = client.post("/api/video", json={
+            "topic": "Second", "script": ["A.", "B."],
+            "visuals": ["visual A", "visual B"]})
         assert resp.status_code == 409, resp.get_data(as_text=True)
         assert "already running" in resp.get_json()["error"], \
             resp.get_data(as_text=True)
@@ -456,16 +459,6 @@ def check_cancel_and_retry():
     gate = threading.Event()
     try:
         with mock.patch.object(app, "VIDEOS_DIR", tmpv), \
-             mock.patch.object(app, "draft_script",
-                               return_value="Alpha line.\nBeta line."), \
-             mock.patch.object(app, "revise_with_note",
-                               return_value=("Alpha line.\nBeta line.",
-                                             "")), \
-             mock.patch.object(app, "_spark_critique_raw",
-                               return_value="[]"), \
-             mock.patch.object(app, "_spark_revise_scene",
-                               return_value=("Revised Alpha line.",
-                                             "revised visual")), \
              mock.patch.object(render, "run_pipeline") as pipeline:
 
             def _wait_then_stage(scenes, topic, out_dir, **kwargs):
@@ -475,6 +468,7 @@ def check_cancel_and_retry():
             pipeline.side_effect = _wait_then_stage
             resp = client.post("/api/video", json={
                 "topic": "Cancel me", "script": ["Alpha.", "Beta."],
+                "visuals": ["alpha visual", "beta visual"],
                 "aspect_ratio": "9:16"})
             assert resp.status_code == 200, resp.get_data(as_text=True)
             job_id = resp.get_json()["job_id"]
@@ -549,7 +543,7 @@ def main():
     check_bounded_revision()
     check_failed_stage_reporting()
     check_job_restoration()
-    check_caption_failure_fails_hard()
+    check_no_caption_failure_mode()
     check_aspect_propagation()
     check_duplicate_protection()
     check_cancel_and_retry()

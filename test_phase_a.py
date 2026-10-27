@@ -10,8 +10,10 @@ anything here. Do not substitute a MOCKED result for a live run.
 Covers Phase A scope only:
   - dynamic scene counts and asset mapping (1, 5, 7 scenes)
   - failed-stage reporting (failed, never endlessly working; no leaks)
-  - caption failure handling (fail-hard, QC must not fully pass)
-  - editable visual style (default kept, no forced robot)
+  - no captions: assembly writes no SRT and burns no subtitles,
+    QC passes without any caption evidence (owner decision Oct 27:
+    burned-in captions removed because the output was not good)
+  - style and color options (presets, not typed paragraphs)
   - truthful health (Key configured vs authenticated connection)
   - per-scene regenerate touches one scene only
 
@@ -68,13 +70,20 @@ def check_scene_counts_and_mapping():
 
 
 def check_failed_stage_reporting():
+    # Gated contract: production runs on approved lines+visuals, so
+    # the failure here is a production-stage (image) failure, with
+    # script+revise already done pre-approval.
     client = app.app.test_client()
     old_key = app._MEMORY_KEY["key"]
     app._MEMORY_KEY["key"] = FAKE_KEY
     try:
-        with mock.patch.object(app, "draft_script",
-                               side_effect=RuntimeError("mocked Spark down")):
-            resp = client.post("/api/video", json={"topic": "Anything"})
+        with mock.patch.object(render, "generate_images",
+                               side_effect=RuntimeError(
+                                   "mocked Image down")):
+            resp = client.post("/api/video", json={
+                "topic": "Anything",
+                "script": ["Alpha line.", "Beta line."],
+                "visuals": ["alpha visual", "beta visual"]})
             assert resp.status_code == 200, resp.get_data(as_text=True)
             job_id = resp.get_json()["job_id"]
             deadline = time.time() + 15
@@ -85,11 +94,13 @@ def check_failed_stage_reporting():
                     break
                 time.sleep(0.2)
             assert job["status"] == "error", job
-            assert job["stages"]["script"] == "error", job["stages"]
+            assert job["stages"]["script"] == "done", job["stages"]
+            assert job["stages"]["revise"] == "done", job["stages"]
+            assert job["stages"]["scenes"] == "error", job["stages"]
             left_working = [k for k, v in job["stages"].items()
                             if v == "working"]
             assert not left_working, job["stages"]
-            assert "mocked Spark down" in job["error"], job
+            assert "mocked Image down" in job["error"], job
             assert FAKE_KEY not in job["error"], "key leaked into error"
             for rec in job["scenes"]:
                 assert rec["status"] != "working", rec
@@ -101,10 +112,10 @@ def check_failed_stage_reporting():
           "no key in error")
 
 
-def check_caption_failure_fails_hard():
-    tmp = tempfile.mkdtemp(prefix="phase-a-captions-")
-    scenes = [{"narration": "Scene one caption here."},
-              {"narration": "Scene two caption here."}]
+def check_assemble_failure_fails_hard():
+    tmp = tempfile.mkdtemp(prefix="phase-a-assemble-")
+    scenes = [{"narration": "Scene one narration here."},
+              {"narration": "Scene two narration here."}]
     imgs = []
     auds = []
     for i in range(2):
@@ -117,71 +128,117 @@ def check_caption_failure_fails_hard():
 
     class FakeResult:
         returncode = 1
-        stderr = "Unable to load subtitles: mocked font failure"
+        stderr = "mocked ffmpeg failure"
 
     with mock.patch.object(render, "media_duration", return_value=2.0), \
             mock.patch.object(render, "_run", return_value=FakeResult()):
         try:
             render.assemble(scenes, imgs, auds, "Topic", tmp)
         except RuntimeError as e:
-            assert "caption rendering failed for scene" in str(e), e
+            assert "segment rendering failed for scene" in str(e), e
         else:
             raise AssertionError(
-                "assemble silently passed a failed subtitle burn")
-    print("MOCKED PASS: broken subtitle path fails the job, no silent "
-          "fallback without captions")
+                "assemble silently passed a failed ffmpeg segment")
+    print("MOCKED PASS: broken segment fails the job, no silent "
+          "fallback")
 
 
-def check_caption_qc_gate():
-    tmp = tempfile.mkdtemp(prefix="phase-a-qc-")
-    missing = os.path.join(tmp, "gone.mp4")
-    # Degraded captions must not pass as a full success.
-    report = render.qc_report(missing, captions=[{"scene": 0, "clean": False}],
-                              captions_ok=False)
-    assert report["passed"] is False, report
-    assert "caption_error" in report, report
-    assert report["technical"]["captions_ok"] is False, report
-    assert "editorial" in report and "technical" in report, report
-    # Missing caption evidence also fails closed.
-    report2 = render.qc_report(missing)
-    assert report2["passed"] is False, report2
-    assert report2["captions_ok"] is False, report2
-    print("MOCKED PASS: degraded/missing captions fail QC, technical vs "
-          "editorial kept separate")
-
-
-def check_verify_captions():
-    tmp = tempfile.mkdtemp(prefix="phase-a-srt-")
+def check_no_captions_in_assemble():
+    tmp = tempfile.mkdtemp(prefix="phase-a-nocap-")
     scenes = [{"narration": "Only scene one words."},
               {"narration": "Only scene two words."}]
-    with open(os.path.join(tmp, "scene_0.srt"), "w") as f:
-        f.write("1\n00:00:00,000 --> 00:00:02,000\nOnly scene one words.\n")
-    with open(os.path.join(tmp, "scene_1.srt"), "w") as f:
-        f.write("1\n00:00:00,000 --> 00:00:02,000\nOnly scene two words.\n"
-                "Only scene one words.\n")
-    records, ok = render.verify_captions(scenes, tmp)
-    assert ok is False, records
-    assert records[0]["clean"] is True, records
-    assert records[1]["clean"] is False, records
-    # Missing file fails, never silently passes.
-    os.remove(os.path.join(tmp, "scene_1.srt"))
-    records, ok = render.verify_captions(scenes, tmp)
-    assert ok is False and records[1]["clean"] is False, records
-    print("MOCKED PASS: per-scene caption tracking (clean / leaked / "
-          "missing)")
+    imgs, auds = [], []
+    for i in range(2):
+        img = os.path.join(tmp, "scene_%d.png" % i)
+        aud = os.path.join(tmp, "scene_%d.wav" % i)
+        open(img, "wb").write(b"fake-image-bytes")
+        open(aud, "wb").write(b"fake-audio-bytes")
+        imgs.append(img)
+        auds.append(aud)
+
+    seen = []
+
+    class FakeOk:
+        returncode = 0
+        stderr = ""
+
+        def check_returncode(self):
+            return 0
+
+    def fake_run(cmd, timeout=300):
+        seen.append(list(cmd))
+        out = cmd[-1]
+        if cmd[1:3] == ["-y", "-f"]:
+            with open(out, "wb") as f:
+                f.write(b"fake-final-bytes")
+        elif out != os.devnull:
+            with open(out, "wb") as f:
+                f.write(b"fake-media-bytes")
+        return FakeOk()
+
+    with mock.patch.object(render, "media_duration", return_value=2.0), \
+            mock.patch.object(render, "_run", side_effect=fake_run):
+        render.assemble(scenes, imgs, auds, "Topic", tmp)
+    # No SRT file on disk, no subtitles filter anywhere.
+    assert [n for n in os.listdir(tmp)
+            if n.endswith(".srt")] == [], os.listdir(tmp)
+    assert not hasattr(render, "verify_captions"), \
+        "verify_captions still present"
+    assert not hasattr(render, "caption_style_for_aspect"), \
+        "caption_style_for_aspect still present"
+    seg_cmds = [c for c in seen if "seg_" in c[-1]]
+    assert seg_cmds, seen
+    for cmd in seg_cmds:
+        vf = cmd[cmd.index("-vf") + 1]
+        assert "subtitles" not in vf, (cmd, vf)
+        assert "force_style" not in vf, (cmd, vf)
+    print("MOCKED PASS: assembly writes no SRT and burns no subtitles")
 
 
-def check_style_editable():
+def check_no_caption_qc_gate():
+    tmp = tempfile.mkdtemp(prefix="phase-a-qc-")
+    missing = os.path.join(tmp, "gone.mp4")
+    # A missing file still fails, but never for captions.
+    report = render.qc_report(missing)
+    assert report["passed"] is False, report
+    assert "caption_error" not in report, report
+    assert "captions_ok" not in report.get("technical", {}), report
+    assert "captions" not in report, report
+    assert "editorial" in report and "technical" in report, report
+    print("MOCKED PASS: QC has no caption requirement and no "
+          "caption failure mode")
+
+
+def check_style_options():
+    assert len(render.STYLE_PRESETS) >= 6, render.STYLE_PRESETS
+    assert len(render.COLOR_THEMES) >= 6, render.COLOR_THEMES
     scene = {"narration": "A lesson about rivers."}
     default_prompt = render._meta_prompt(scene)
     assert default_prompt.startswith(render.META_STYLE), default_prompt
+    # Every preset maps to a short block used for every scene.
+    heads = set()
+    for sid in render.STYLE_PRESETS:
+        p = render._meta_prompt({"narration": "A lesson about rivers.",
+                                 "style": sid})
+        assert render.STYLE_PRESETS[sid]["block"].strip() in p, (sid, p)
+        heads.add(p)
+    assert len(heads) == len(render.STYLE_PRESETS), heads
+    # Flat vector keeps the robot-director look as one option.
+    flat = render._meta_prompt({"narration": "A lesson about rivers.",
+                                "style": "flat-vector"})
+    assert "robot" in flat, flat
+    water = render._meta_prompt({"narration": "A lesson about rivers.",
+                                 "style": "watercolor"})
+    assert "robot" not in water, water
+    # Legacy free text still renders exactly, with no forced robot.
     custom = "Watercolor wash, warm paper background, "
     styled = render._meta_prompt({"narration": "A lesson about rivers.",
                                   "style": custom})
     assert custom.strip() in styled, styled
     assert "robot" not in styled, styled
     assert "#1877F2" not in styled, styled
-    print("MOCKED PASS: style editable, default kept, no forced robot")
+    print("MOCKED PASS: style presets as options, default kept, "
+          "no forced robot")
 
 
 def check_health_truthful():
@@ -242,8 +299,8 @@ def check_regenerate_single_scene():
                             "style": None, "out_dir": tmp}
     calls = []
 
-    def fake_image(prompt, path, key):
-        calls.append((prompt, path))
+    def fake_image(prompt, path, key, aspect_ratio=None, **kwargs):
+        calls.append((prompt, path, aspect_ratio))
         with open(path, "wb") as f:
             f.write(b"mocked-scene-image")
 
@@ -273,7 +330,8 @@ def check_regenerate_single_scene():
         assert resp.status_code == 200, resp.get_data(as_text=True)
         scene = resp.get_json()["scene"]
         assert scene["dirty"] is True and scene["dirty_reason"], scene
-        assert "audio and captions" in scene["dirty_reason"], scene
+        assert "audio still" in scene["dirty_reason"], scene
+        assert "caption" not in scene["dirty_reason"].lower(), scene
     finally:
         app._MEMORY_KEY["key"] = old_key
         with app.JOBS_LOCK:
@@ -285,10 +343,10 @@ def check_regenerate_single_scene():
 def main():
     check_scene_counts_and_mapping()
     check_failed_stage_reporting()
-    check_caption_failure_fails_hard()
-    check_caption_qc_gate()
-    check_verify_captions()
-    check_style_editable()
+    check_assemble_failure_fails_hard()
+    check_no_captions_in_assemble()
+    check_no_caption_qc_gate()
+    check_style_options()
     check_health_truthful()
     check_regenerate_single_scene()
     print("MOCKED ALL PASS: 8 Phase A checks. Live evidence still "

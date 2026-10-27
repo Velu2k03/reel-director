@@ -95,6 +95,10 @@ STOPWORDS = frozenset({
     "storms",
     "in", "on", "of", "to", "for", "with", "by", "from", "at",
     "as", "into", "over", "under", "out", "up", "down",
+    "about", "against", "across", "along", "among", "around",
+    "behind", "below", "beneath", "beside", "besides",
+    "between", "beyond", "during", "near", "past",
+    "through", "toward", "towards", "within", "without",
     "and", "or", "but", "not", "no", "so", "very", "just",
     "how", "what", "when", "where", "which", "who", "why",
     "it", "its", "they", "them", "their", "he", "she", "we",
@@ -136,6 +140,49 @@ DURATION_TOLERANCE = 0.30
 # Shared word-runs of this length between two scenes count as
 # repeated narration wording.
 REPEAT_NGRAM = 4
+
+# Group language that breaks a solo-learning brief: the model
+# kept writing "stay with us" and "together" for solo learners,
+# and relevance must keep flagging it.
+GROUP_LANGUAGE = (
+    "together",
+    "stay with us",
+    "join us",
+    "let us",
+    "let's",
+    "all of us",
+    "as a group",
+    "side by side",
+)
+
+
+def is_solo_audience(audience):
+    """True when the brief audience learns alone ("solo learners",
+    "solo", ...). Group language is then out of place."""
+    return "solo" in str(audience or "").lower()
+
+
+def group_language_in(text):
+    """The first group-language phrase found in narration, or ""."""
+    low = str(text or "").lower()
+    for phrase in GROUP_LANGUAGE:
+        if phrase in low:
+            return phrase
+    return ""
+
+
+def visual_objects(scene, brief):
+    """Distinct visual objects for the repetition-visual check.
+
+    Content words of the visual prompt minus the brief topic
+    words: every Jesus scene shares Jesus by definition, so the
+    topic word is excluded and only a distinct visual object
+    (boat, bread, road, ...) can collide. Returns a set, possibly
+    empty when the visual says nothing beyond the topic.
+    """
+    topic_words = set(_content_words(brief.topic))
+    return {w for w in _content_words(scene.get("visual_prompt") or "")
+            if w not in topic_words}
 
 
 class ScenePlanError(ValueError):
@@ -196,10 +243,24 @@ def _words(text):
 
 
 def _singular(word):
-    # Naive singular, mirroring meta_sam.concept_for_subject, so
+    # Safe singular, mirroring meta_sam.concept_for_subject, so
     # "river" matches "rivers" in relevance and overlap checks.
+    # Proper-name guard (Jesus-run fix): proper names are never
+    # singularized, so "jesus" stays whole (never "jesu") and
+    # "james"/"moses" stay whole (never "jame"/"mose"). Prefer
+    # the original word; strip a final "s" only for common
+    # plurals.
+    if word == "leaves":
+        return "leaf"
+    if word in ("jesus", "james", "moses"):
+        return word
+    if word.endswith("us"):
+        return word
     if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
-        return word[:-1]
+        stem = word[:-1]
+        if stem in ("jesu", "jame", "mose"):
+            return word
+        return stem
     return word
 
 
@@ -380,22 +441,38 @@ def critique(brief, scenes, measured_wps=None):
                                    % shared[0]),
                     })
 
-    # Repetition, visual ideas: same lead content word in two
-    # visual prompts.
-    def _visual_head(scene):
-        words = _content_words(scene["visual_prompt"])
-        return words[0] if words else ""
+    # Group language against a solo audience: "stay with us"
+    # and "together" do not belong in a solo-learners video.
+    # Flagged under relevance, which judges audience fit.
+    if is_solo_audience(brief.audience):
+        for scene in scenes:
+            phrase = group_language_in(scene["narration"])
+            if phrase:
+                findings.append({
+                    "scene_id": scene["id"],
+                    "criterion": "relevance",
+                    "detail": ("narration uses group language %r for "
+                               "a solo audience %r: one learner, "
+                               "no group"
+                               % (phrase, brief.audience)),
+                })
 
-    heads = [_visual_head(s) for s in scenes]
+    # Repetition, visual ideas: two visuals sharing a DISTINCT
+    # visual object (a content word outside the brief topic).
+    # Scenes that share only the topic word never collide: every
+    # Jesus scene leads with Jesus by definition, so the topic
+    # is excluded and only boat/bread/road-style overlap flags.
+    objects = [visual_objects(s, brief) for s in scenes]
     for i in range(len(scenes)):
         for j in range(i + 1, len(scenes)):
-            if heads[i] and heads[i] == heads[j]:
+            shared = sorted(objects[i] & objects[j])
+            if shared:
                 for sid in (scenes[i]["id"], scenes[j]["id"]):
                     findings.append({
                         "scene_id": sid,
                         "criterion": "repetition-visual",
                         "detail": ("repeated visual idea: both visuals "
-                                   "lead with %r" % heads[i]),
+                                   "share object %r" % shared[0]),
                     })
 
     # Duration: estimated total against the brief target.
@@ -665,8 +742,9 @@ def revise_loop(brief, scenes, critique_fn=None, revise_scene_fn=None,
                               "or visual prompt: kept the original"),
                 })
                 continue
-            if (new_n.strip() == before_n
-                    and new_v.strip() == before_v):
+            narration_changed = new_n.strip() != before_n
+            visual_changed = new_v.strip() != before_v
+            if not narration_changed and not visual_changed:
                 # The model returned the scene unchanged: record the
                 # attempt honestly instead of claiming a revision, and
                 # leave the scene for the next critique to re-check.
@@ -680,9 +758,19 @@ def revise_loop(brief, scenes, critique_fn=None, revise_scene_fn=None,
                     "status": "unchanged",
                 })
                 continue
+            # Label what actually changed: narration-revised only
+            # when narration changed, visual-revised only when the
+            # visual changed, revised when both did. Identical
+            # before/after text is never shown as revised.
+            if narration_changed and visual_changed:
+                status = "revised"
+            elif narration_changed:
+                status = "narration-revised"
+            else:
+                status = "visual-revised"
             scene["narration"] = new_n.strip()
             scene["visual_prompt"] = new_v.strip()
-            scene["revision_status"] = "revised"
+            scene["revision_status"] = status
             attempts.append({
                 "cycle": cycle, "scene_id": sid,
                 "criteria": criteria,
@@ -690,7 +778,7 @@ def revise_loop(brief, scenes, critique_fn=None, revise_scene_fn=None,
                 "before_visual": before_v,
                 "after_narration": scene["narration"],
                 "after_visual": scene["visual_prompt"],
-                "status": "revised",
+                "status": status,
             })
     else:
         # Ran every cycle without a clean critique: re-check once so
@@ -716,6 +804,7 @@ def revise_loop(brief, scenes, critique_fn=None, revise_scene_fn=None,
         "cycles_used": cycles_used,
         "max_cycles": max_cycles,
         "attempts": attempts,
+        "grouped_attempts": grouped_attempts(attempts),
         "unmet_criteria": unmet,
         "editorial_pass": not unmet,
         "estimate_basis": last_basis,
@@ -727,6 +816,51 @@ def revise_loop(brief, scenes, critique_fn=None, revise_scene_fn=None,
         },
     }
     return scenes, log
+
+
+# Attempt statuses that count as a revision (narration and/or
+# visual actually changed). "unchanged" and "failed" never count.
+REVISED_STATUSES = ("revised", "narration-revised", "visual-revised")
+
+
+def grouped_attempts(attempt_list):
+    """Deduplicate revision attempts across cycles, grouped by
+    scene and criterion instead of stacked per cycle.
+
+    Returns a list of {scene_id, criterion, cycles, status,
+    before_narration, after_narration, before_visual,
+    after_visual}: cycles lists every cycle that touched that
+    scene+criterion, before_* is the first before, after_* the
+    last after, status the latest non-failed status. Sorted by
+    scene then criterion, so the log and the UI show one line
+    per scene+criterion no matter how many cycles ran.
+    """
+    grouped = {}
+    order = []
+    for attempt in attempt_list or []:
+        for criterion in attempt.get("criteria", []):
+            key = (attempt.get("scene_id"), criterion)
+            if key not in grouped:
+                grouped[key] = {
+                    "scene_id": attempt.get("scene_id"),
+                    "criterion": criterion,
+                    "cycles": [],
+                    "status": attempt.get("status"),
+                    "before_narration": attempt.get("before_narration"),
+                    "before_visual": attempt.get("before_visual"),
+                    "after_narration": attempt.get("after_narration"),
+                    "after_visual": attempt.get("after_visual"),
+                }
+                order.append(key)
+            entry = grouped[key]
+            if attempt.get("cycle") not in entry["cycles"]:
+                entry["cycles"].append(attempt.get("cycle"))
+            entry["after_narration"] = attempt.get("after_narration")
+            entry["after_visual"] = attempt.get("after_visual")
+            if attempt.get("status") != "failed":
+                entry["status"] = attempt.get("status")
+    return [grouped[key]
+            for key in sorted(order, key=lambda k: (str(k[0]), str(k[1])))]
 
 
 def director_decisions(log, id_to_index=None):
@@ -741,10 +875,14 @@ def director_decisions(log, id_to_index=None):
     entries = []
     for attempt in log.get("attempts", []):
         idx = id_to_index.get(attempt["scene_id"])
+        what = {"revised": "revised",
+                "narration-revised": "narration revised",
+                "visual-revised": "visual revised"}.get(
+                    attempt.get("status"), attempt.get("status"))
         entries.append({
             "decision": (
-                "director cycle %d: scene %s revised (%s)"
-                % (attempt["cycle"], attempt["scene_id"],
+                "director cycle %d: scene %s %s (%s)"
+                % (attempt["cycle"], attempt["scene_id"], what,
                    ", ".join(attempt["criteria"]))),
             "stage": "director",
             "scene": idx,

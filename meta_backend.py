@@ -119,35 +119,78 @@ def chat(prompt, model=None, max_tokens=512, api_key=None):
     return content
 
 
-def draft_script(topic, model=None, api_key=None):
-    """First script draft via Muse Spark. Returns raw assistant text."""
+def _scene_count_or_default(scene_count):
+    """Validated scene count (default 5). Raises ValueError."""
+    if scene_count is None:
+        return 5
+    try:
+        count = int(scene_count)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "scene_count must be a positive int, got %r"
+            % (scene_count,)) from None
+    if not 1 <= count <= 12:
+        raise ValueError(
+            "scene_count must be between 1 and 12, got %r"
+            % (scene_count,))
+    return count
+
+
+def _solo_guard(audience):
+    """Extra prompt line forbidding group language for solo
+    audiences (empty otherwise)."""
+    if "solo" in str(audience or "").lower():
+        return (" The audience learns alone (%s): never use group "
+                "language -- no 'together', 'stay with us', 'join "
+                "us', 'let us', or any invitation to a group."
+                % (audience,))
+    return ""
+
+
+def draft_script(topic, model=None, api_key=None, scene_count=None):
+    """First script draft via Muse Spark. Returns raw assistant text.
+
+    scene_count lines are requested (default 5)."""
+    count = _scene_count_or_default(scene_count)
     return chat(
-        "Write a 5-line faceless video script outline for this topic. "
-        "One clear sentence per line, no numbering, no preamble. "
-        "Topic: " + topic,
+        "Write a %d-line faceless video script outline for this "
+        "topic. One clear sentence per line, no numbering, no "
+        "preamble. Topic: " % count + topic,
         model=model or SPARK_MODEL,
         max_tokens=SCRIPT_DRAFT_TOKENS,
         api_key=api_key,
     )
 
 
-REVISE_BRIEF = (
-    "Line 1 must be a stronger hook that earns the first three "
-    "seconds. Lines 2-4 build one beat each in order. Line 5 is a "
-    "clean closing takeaway that restates the point."
-)
+def revise_brief_for_count(count):
+    """Revision brief for exactly ``count`` lines: line 1 hooks,
+    middle lines build one beat each, the last line closes."""
+    if count == 1:
+        return ("The single line must hook in the first three "
+                "seconds and give one clean takeaway.")
+    return (
+        "Line 1 must be a stronger hook that earns the first three "
+        "seconds. Lines 2-%d build one beat each in order. Line %d "
+        "is a clean closing takeaway that restates the point."
+        % (count - 1, count))
 
 
-def revise_script(draft, topic, model=None, api_key=None):
+REVISE_BRIEF = revise_brief_for_count(5)
+
+
+def revise_script(draft, topic, model=None, api_key=None,
+                  scene_count=None, audience=None):
     """Muse Wonder critiques the Spark draft and returns the final
-    5-line script. Returns raw assistant text."""
+    script. Returns raw assistant text (scene_count lines)."""
+    count = _scene_count_or_default(scene_count)
     return chat(
         "You are revising a faceless-video script draft for this topic: "
         + topic + "\n\nDraft:\n" + draft + "\n\nCritique the draft "
         "(hook strength, one idea per line, speakability), then output "
-        "the final script as exactly 5 lines, one clear sentence per "
+        "the final script as exactly %d lines, one clear sentence per "
         "line, no numbering, no preamble, no critique in the output. "
-        + REVISE_BRIEF + " Final script only.",
+        % count + revise_brief_for_count(count)
+        + _solo_guard(audience) + " Final script only.",
         model=model or WONDER_MODEL,
         max_tokens=SCRIPT_REVISE_TOKENS,
         api_key=api_key,
@@ -233,7 +276,9 @@ def revise_scene(topic, audience, target_duration_s, narration,
     this scene and demands exactly two lines: 'NARRATION: ...' then
     'VISUAL: ...'. The caller parses those lines and fails visibly
     when they are missing. ``reasons`` is a list of finding dicts
-    with criterion and detail.
+    with criterion and detail. The audience travels as given and
+    must not be rewritten; for solo audiences group language is
+    forbidden outright.
     """
     criteria = "; ".join("%s: %s" % (r.get("criterion"),
                                      r.get("detail", "")[:200])
@@ -241,37 +286,72 @@ def revise_scene(topic, audience, target_duration_s, narration,
     return chat(
         "You are the director revising ONE scene of a faceless "
         "lesson video. Brief: topic %r, audience %r, target total "
-        "duration %.0f seconds. Current narration: %r. Current "
+        "duration %.0f seconds. Keep the audience exactly as given; "
+        "do not rename or rewrite it. Current narration: %r. Current "
         "visual prompt: %r. Fix ONLY these flagged issues: %s. "
         "Reply with exactly two lines and nothing else: "
         "'NARRATION: <revised narration, one sentence>' then "
-        "'VISUAL: <revised visual prompt, one short phrase>'. "
+        "'VISUAL: <revised visual prompt, one short phrase naming "
+        "a concrete object, an action, and a setting, never a copy "
+        "of the narration>'. "
         "No preamble, no explanation."
         % (topic, audience, float(target_duration_s), narration,
-           visual_prompt, criteria),
+           visual_prompt, criteria)
+        + _solo_guard(audience),
         model=model or SPARK_MODEL,
         max_tokens=SCRIPT_REVISE_TOKENS,
         api_key=api_key,
     )
 
 
-def revise_with_note(draft, topic, model=None, api_key=None):
+def describe_visual(topic, audience, narration, model=None,
+                    api_key=None):
+    """Muse Spark describes ONE scene image for a narration line.
+
+    Returns raw text holding exactly one line: 'VISUAL: <short
+    visual description with a distinct concrete object, an action,
+    and a setting>'. The description must be a visual prompt, not
+    a copy of the narration: the caller rejects a visual that
+    repeats the narration and retries once with the same model.
+    """
+    return chat(
+        "You are the art director of a faceless lesson video. "
+        "Brief: topic %r, audience %r. Narration line: %r. "
+        "Describe the single image for this line: one short phrase "
+        "naming a distinct concrete object, an action, and a "
+        "setting (for example a fishing boat on a shore at dawn). "
+        "Every scene needs its own object, action, and setting. "
+        "Reply with exactly one line and nothing else: 'VISUAL: "
+        "<the description>'. Never copy the narration as the "
+        "description; describe what the viewer sees."
+        % (topic, audience, narration)
+        + _solo_guard(audience),
+        model=model or SPARK_MODEL,
+        max_tokens=SCRIPT_REVISE_TOKENS,
+        api_key=api_key,
+    )
+
+
+def revise_with_note(draft, topic, model=None, api_key=None,
+                     scene_count=None, audience=None):
     """Wonder revise that also returns a one-sentence change note.
 
-    Asks Wonder for the final 5-line script followed by a trailing
-    "CHANGE-NOTE:" line naming its main edit. Returns
-    (final_text, change_note); the note parses leniently and falls
-    back to "" when Wonder omits the line.
+    Asks Wonder for the final script (scene_count lines) followed
+    by a trailing "CHANGE-NOTE:" line naming its main edit.
+    Returns (final_text, change_note); the note parses leniently
+    and falls back to "" when Wonder omits the line.
     """
+    count = _scene_count_or_default(scene_count)
     raw = chat(
         "You are revising a faceless-video script draft for this topic: "
         + topic + "\n\nDraft:\n" + draft + "\n\nCritique the draft "
         "(hook strength, one idea per line, speakability), then output "
-        "the final script as exactly 5 lines, one clear sentence per "
+        "the final script as exactly %d lines, one clear sentence per "
         "line, no numbering, no preamble, no critique in the output. "
-        + REVISE_BRIEF + " After the 5 lines, add one last line of "
-        "the form \"CHANGE-NOTE: <one sentence saying what you "
-        "changed>\".",
+        % count + revise_brief_for_count(count)
+        + _solo_guard(audience) + " After the %d lines, add one last "
+        "line of the form \"CHANGE-NOTE: <one sentence saying what you "
+        "changed>\"." % count,
         model=model or WONDER_MODEL,
         max_tokens=SCRIPT_REVISE_TOKENS,
         api_key=api_key,

@@ -133,6 +133,10 @@ _SKIP_WORDS = frozenset({
     "haze", "hazy", "storm", "storms", "stormy",
     "in", "on", "of", "to", "for", "with", "by", "from", "at",
     "as", "into", "over", "under", "out", "up", "down",
+    "about", "against", "across", "along", "among", "around",
+    "behind", "below", "beneath", "beside", "besides",
+    "between", "beyond", "during", "near", "past",
+    "through", "toward", "towards", "within", "without",
     "and", "or", "but", "not", "no", "so", "very", "just",
     "how", "what", "when", "where", "which", "who", "why",
     "it", "its", "they", "them", "their", "he", "she", "we",
@@ -169,16 +173,40 @@ _SKIP_WORDS = frozenset({
     "animated", "animation", "diagram", "aerial", "view",
 })
 
+# Proper names that are themselves the visual subject. Any scene
+# description containing one of these derives it as the SAM
+# concept, whole and never singularized: "jesus" (never "jesu"),
+# "james" (never "jame"), "moses" (never "mose"). Checked before
+# any skip or singular rule, so filler around the name can never
+# shadow it.
+_PROPER_SUBJECTS = frozenset({
+    "jesus", "james", "moses",
+})
+
 
 def _singular(word):
-    # Naive singular, so "robots" segments as "robot".
+    # Safe singular, so "robots" segments as "robot".
     # Irregular foliage case: "leaves" is the plural of "leaf",
     # never the verb "leave".
+    # Proper-name guard (Jesus-run fix): a proper name is never
+    # singularized. "jesus" ends in "us" and is kept whole;
+    # "james"/"moses" are singular names, not plurals of
+    # "jame"/"mose" (which are not words). Prefer the original
+    # word; strip a final "s" only for common plurals. The
+    # explicit denylist below is fail-closed: even if a rule
+    # above ever changes, these stems are never returned.
     if word == "leaves":
         return "leaf"
+    if word in ("jesus", "james", "moses"):
+        return word
+    if word.endswith("us"):
+        return word
     if (len(word) > 3 and word.endswith("s")
             and not word.endswith("ss")):
-        return word[:-1]
+        stem = word[:-1]
+        if stem in ("jesu", "jame", "mose"):
+            return word
+        return stem
     return word
 
 
@@ -201,15 +229,34 @@ def concept_for_subject(subject):
     words = subject.strip().split()
     if not words:
         raise ValueError("subject must be a non-empty str")
-    # A leading title-case word followed by more words reads as a
-    # proper name ("Alpha robots ..."), not the subject: skip it.
+    # A named proper subject is the concept, never singularized:
+    # a scene about Jesus must derive "jesus", never "jesu"
+    # (likewise "james", never "jame"; "moses", never "mose").
+    # This check runs before the leading-proper skip below, so a
+    # leading name that IS the subject is kept.
+    for word in words:
+        token = "".join(c for c in word.lower() if c.isalpha())
+        if token in _PROPER_SUBJECTS:
+            return token
+    # A leading title-case word followed by more words usually
+    # reads as a label ("Alpha robots ..."), not the subject: the
+    # remaining words are tried first. But when they yield no
+    # usable concept, the leading word is tried as a fallback
+    # (kept whole: a proper name is never singularized) instead
+    # of failing outright.
+    leading = None
     if len(words) > 1 and words[0][0].isupper() and words[0].isalpha():
+        leading = words[0]
         words = words[1:]
     cleaned = []
     for word in words:
         token = "".join(c for c in word.lower() if c.isalpha())
         if token:
             cleaned.append(token)
+    if leading is not None:
+        lead_token = "".join(c for c in leading.lower() if c.isalpha())
+        if lead_token and lead_token not in cleaned:
+            cleaned.append(lead_token)
     if not cleaned:
         raise ValueError("subject has no usable concept word: %r" % (subject,))
     for token in cleaned:
