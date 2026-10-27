@@ -57,11 +57,42 @@ ESTIMATED_WPM = 130
 # repetition checks. Includes the narration stopwords and generic
 # verbs behind the Phase A SAM failure ("in", "carried",
 # "thousand"-style filler), so they can never become a concept or a
-# relevance signal.
+# relevance signal. Finish fix: adjectives ("brilliant",
+# "beautiful", "powerful", "quickly"), abstract nouns ("hook"),
+# and mass nouns without a bounded subject ("rain" as weather,
+# "water") are listed here too, and the whole meta_sam skip set is
+# unioned in below, so derive_sam_concept filters with exactly the
+# same rule as meta_sam.concept_for_subject.
 STOPWORDS = frozenset({
     "a", "an", "the", "this", "that", "these", "those",
     "flat", "vector", "illustration", "illustrations", "image",
     "photo", "photograph", "picture", "scene", "background",
+    "foreground", "shot", "shots", "frame", "frames",
+    "giant", "gigantic", "huge", "enormous", "massive",
+    "immense", "vast", "colossal", "mammoth", "mighty",
+    "mini", "miniature", "solid", "rocky", "fallen",
+    "steep", "rugged", "hollow",
+    "beautiful", "beauty", "brilliant", "brilliantly",
+    "powerful", "powerfully", "power", "powers",
+    "quick", "quickly", "slow", "slowly", "fast",
+    "strong", "strongly", "weak", "weakly",
+    "great", "greatly", "wonderful", "amazing", "good",
+    "better", "best", "bad", "worse", "worst",
+    "hook", "hooks", "lesson", "lessons", "video", "videos",
+    "story", "stories", "topic", "topics", "concept",
+    "concepts", "idea", "ideas", "theme", "themes",
+    "message", "messages", "moral", "morals", "point",
+    "points", "fact", "facts", "truth", "truths", "knowledge",
+    "wisdom", "skill", "skills", "habit", "habits",
+    "example", "examples",
+    "thing", "things", "something", "anything", "everything",
+    "stuff", "object", "objects", "item", "items",
+    "part", "parts", "side", "sides", "place", "places",
+    "shape", "shapes", "size", "sizes", "style", "styles",
+    "rain", "rains", "raining", "rainy", "water", "waters",
+    "snow", "snows", "snowing", "snowy", "wind", "winds",
+    "windy", "weather", "air", "fog", "mist", "storm",
+    "storms",
     "in", "on", "of", "to", "for", "with", "by", "from", "at",
     "as", "into", "over", "under", "out", "up", "down",
     "and", "or", "but", "not", "no", "so", "very", "just",
@@ -74,6 +105,20 @@ STOPWORDS = frozenset({
     "make", "makes", "made", "carry", "carries", "carried",
     "take", "takes", "took", "taken", "thousand", "hundred",
     "one", "two", "also", "than", "then", "there", "here",
+    "watch", "watches", "watched", "watching",
+    "learn", "learns", "learned", "learning",
+    "practice", "practices", "practiced", "practicing",
+    "show", "shows", "showed", "shown", "showing",
+    "explain", "explains", "explained", "explaining",
+    "describe", "describes", "described", "describing",
+    "discover", "discovers", "discovered", "discovering",
+    "flow", "flows", "flowed", "flowing",
+    "form", "forms", "formed", "forming",
+    "settle", "settles", "settled", "settling",
+    "grow", "grows", "grew", "growing",
+    "build", "builds", "built", "building",
+    "create", "creates", "created", "creating",
+    "leave",
 })
 
 # Weak scene-1 openers: a hook that starts this way is flagged.
@@ -731,8 +776,15 @@ def director_decisions(log, id_to_index=None):
 
 try:
     from meta_sam import concept_for_subject as _concept_for_subject
+    from meta_sam import _SKIP_WORDS as _SAM_SKIP_WORDS
 except ImportError:  # pragma: no cover - meta_sam ships with the repo
     _concept_for_subject = None
+    _SAM_SKIP_WORDS = frozenset()
+
+# Same rule in every path: the director-level stopwords plus the
+# full meta_sam skip set filter identically, so a word rejected by
+# meta_sam.concept_for_subject can never slip back in here.
+STOPWORDS = frozenset(set(STOPWORDS) | set(_SAM_SKIP_WORDS))
 
 
 def derive_sam_concept(scene):
@@ -740,11 +792,17 @@ def derive_sam_concept(scene):
 
     Narration is never consulted, so narration stopwords and generic
     verbs ("in", "carried", "thousand"-style filler) can never become
-    the concept -- the Phase A failure mode. If no usable concept
-    comes from the visual prompt or subject, this raises ValueError
-    naming the scene: the caller must fix the concept from the visual
-    prompt first, before regenerating any image. One bad concept
-    therefore never costs two regens.
+    the concept -- the Phase A failure mode. Adjectives
+    ("brilliant", "beautiful", "powerful", "quickly"), abstract
+    nouns ("hook"), and mass nouns without a bounded subject
+    ("rain" as weather, "water") are rejected the same way -- the
+    finish-brief failure mode, where "hook", "brilliant", and "rain"
+    concepts found 0 SAM matches on every scene. If no usable
+    concept comes from the visual prompt or subject, this raises
+    ValueError naming the scene: the caller (render.sam_check)
+    records the SAM check as skipped with that reason and keeps the
+    image without regenerating. One bad concept therefore never
+    costs two regens.
 
     Returns {concept, visual_subject, source, fixed}: source names
     which field won (visual_prompt, visual, or subject) and fixed is
@@ -775,7 +833,8 @@ def derive_sam_concept(scene):
         except ValueError as exc:
             errors.append("%s: %s" % (key, exc))
             continue
-        if not concept or concept.lower() in STOPWORDS:
+        if (not concept or concept.lower() in STOPWORDS
+                or concept.lower() in _SAM_SKIP_WORDS):
             errors.append("%s: derived stopword %r" % (key, concept))
             continue
         return {"concept": concept, "visual_subject": subject,

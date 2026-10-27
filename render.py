@@ -371,20 +371,35 @@ def _closeup_prompt(scene):
             "close-up view of " + subject)
 
 
+# Same concept rule in this path too: adjectives ("brilliant",
+# "beautiful", "powerful", "quickly"), abstract nouns ("hook"),
+# mass nouns without a bounded subject ("rain" as weather,
+# "water"), narration stopwords, verbs, and generic words can never
+# become the SAM concept. Unioned from meta_sam so all three paths
+# (meta_sam, director, render) filter identically; checked again on
+# the derived concept below as a second gate.
+try:
+    from meta_sam import _SKIP_WORDS as _SAM_SKIP_WORDS
+except ImportError:  # pragma: no cover - meta_sam ships with the repo
+    _SAM_SKIP_WORDS = frozenset()
+
+
 def sam_check(scenes, image_paths, api_key, decisions=None,
               on_scene=None):
     """SAM 3.1 segmentation check for every scene image.
 
     Returns a list of per-scene result dicts (matches found, boxes).
     The concept comes from the visual prompt or scene subject via
-    _visual_subject, never from narration stopwords: a bad concept
-    raises a clear error BEFORE any image is regenerated, so one bad
-    concept never costs two regens. A SAM API error raises and fails
-    the job. Zero matches with a good visual concept regenerates
-    that scene image once (Meta only, close-up prompt) and re-runs
-    SAM once, recorded in decisions with the visual subject and the
-    concept used; still-zero keeps the warning and continues, never
-    failing the video alone.
+    _visual_subject, never from narration stopwords, adjectives,
+    abstract nouns, or mass nouns: when no usable visual concept
+    exists the scene is recorded as skipped (skipped=True) with the
+    reason in its warning, the image is kept WITHOUT regenerating,
+    and the job continues. Zero matches for a real checked concept
+    regenerates that scene image once (Meta only, close-up prompt)
+    and re-runs SAM once, recorded in decisions with the visual
+    subject and the concept used; still-zero keeps the warning and
+    continues, never failing the video alone. A SAM API error raises
+    and fails the job.
     """
     _require_key(api_key)
     if meta_sam is None:
@@ -401,12 +416,70 @@ def sam_check(scenes, image_paths, api_key, decisions=None,
         try:
             derived = _visual_subject(scene)
         except ValueError as e:
-            # Bad concept: fix the concept from the visual prompt
-            # first. No image is regenerated for this; the job
-            # fails visibly instead of burning a regen on filler.
+            # No usable visual concept (adjective, abstract or mass
+            # noun, stopword, or generic filler only): skip this
+            # scene's SAM check with the reason, keep the image, no
+            # regen. A bad concept never costs a paid image.
+            reason = str(e)[:300]
+            skipped = {
+                "scene": i,
+                "subject": (scene.get("visual_prompt")
+                            or scene.get("visual")
+                            or scene.get("subject") or ""),
+                "concept": "",
+                "visual_subject": (scene.get("visual_prompt")
+                                   or scene.get("visual")
+                                   or scene.get("subject") or ""),
+                "matches": 0, "boxes": [], "masks": 0,
+                "skipped": True,
+                "skip_reason": reason,
+                "warning": ("SAM check skipped for scene %d: no "
+                            "usable visual concept (%s); image kept "
+                            "without regenerating" % (i, reason)),
+            }
+            if decisions is not None:
+                decisions.append({
+                    "decision": (
+                        "scene %d SAM check skipped: no usable "
+                        "visual concept (%s); image kept without "
+                        "regenerating, video continues" % (i, reason)),
+                    "stage": "sam", "scene": i, "retried": False,
+                    "skipped": True,
+                })
+            results.append(skipped)
             if on_scene is not None:
-                on_scene(i, "sam", {"ok": False, "error": str(e)[:300]})
-            raise
+                on_scene(i, "sam", {"ok": True, "result": skipped,
+                                   "skipped": True})
+            continue
+        # Second gate on the shared rule: even if derivation ever
+        # returned a filtered word, skip instead of checking it.
+        if derived["concept"].lower() in _SAM_SKIP_WORDS:
+            reason = ("derived concept %r is a filtered word"
+                      % (derived["concept"],))[:300]
+            gated = {
+                "scene": i, "subject": derived["visual_subject"],
+                "concept": "", "visual_subject":
+                    derived["visual_subject"],
+                "matches": 0, "boxes": [], "masks": 0,
+                "skipped": True, "skip_reason": reason,
+                "warning": ("SAM check skipped for scene %d: no "
+                            "usable visual concept (%s); image kept "
+                            "without regenerating" % (i, reason)),
+            }
+            if decisions is not None:
+                decisions.append({
+                    "decision": (
+                        "scene %d SAM check skipped: no usable "
+                        "visual concept (%s); image kept without "
+                        "regenerating, video continues" % (i, reason)),
+                    "stage": "sam", "scene": i, "retried": False,
+                    "skipped": True,
+                })
+            results.append(gated)
+            if on_scene is not None:
+                on_scene(i, "sam", {"ok": True, "result": gated,
+                                   "skipped": True})
+            continue
         subject = derived["visual_subject"]
         if derived.get("fixed") and decisions is not None:
             decisions.append({

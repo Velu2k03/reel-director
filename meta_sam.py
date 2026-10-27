@@ -54,14 +54,83 @@ BASE_URL = "https://api.meta.ai/v1"
 # derived concepts from narration words like "in", "carried", and
 # "thousand", which found 0 SAM matches on every scene; those words
 # must never become a concept again.
+# Finish fix: adjectives, abstract nouns, action verbs, and generic
+# or mass nouns can never be the visual subject either. Live jobs
+# used "brilliant" and narrative "hook" as concepts and checked
+# "rain" as weather: none of those names a bounded object SAM can
+# segment, and each wasted check (plus a regen) on a bad concept.
+# Concrete subjects (robot, mountain, tree, leaf, riverbank, cloud)
+# stay accepted. This set is the shared rule: director.py unions it
+# into STOPWORDS and render.py sam_check enforces it again, so all
+# three paths filter identically.
 _SKIP_WORDS = frozenset({
     "a", "an", "the", "this", "that", "these", "those",
     "flat", "vector", "illustration", "illustrations", "image",
     "photo", "photograph", "picture", "scene", "background",
+    "foreground", "shot", "shots", "frame", "frames", "angle",
+    "angles", "composition", "layout",
     "small", "big", "large", "tiny", "little", "cute", "friendly",
     "main", "primary", "whole", "entire", "full", "central",
     "red", "blue", "green", "yellow", "white", "black", "gray",
     "grey", "light", "dark", "colored", "colourful", "colorful",
+    "color", "colors", "colour", "colours", "bright", "vivid",
+    "vibrant", "muted", "pastel", "bold", "subtle",
+    "long", "short", "tall", "wide", "narrow", "high", "low",
+    "deep", "shallow", "thick", "thin", "round", "square",
+    "straight", "curved", "clean", "dirty", "fresh", "new", "old",
+    "young", "modern", "ancient", "classic", "simple", "complex",
+    "plain", "fancy", "grand", "rare", "common", "unique",
+    "typical", "normal", "regular", "popular", "famous",
+    "giant", "gigantic", "huge", "enormous", "enormously",
+    "massive", "immense", "immensely", "vast", "colossal",
+    "mammoth", "mighty", "mini", "miniature", "microscopic",
+    "solid", "rocky", "fallen", "steep", "rugged", "hollow",
+    "brilliant", "brilliantly", "beautiful", "beautifully",
+    "beauty", "powerful", "powerfully", "power", "powers",
+    "quick", "quickly", "slow", "slowly", "fast", "faster",
+    "fastest", "strong", "strongly", "weak", "weakly",
+    "great", "greatly", "wonderful", "wonderfully", "amazing",
+    "amazingly", "awesome", "excellent", "fine", "good",
+    "better", "best", "bad", "worse", "worst", "nice", "lovely",
+    "pretty", "rich", "poor", "happy", "sad", "glad", "honest",
+    "true", "truly", "false", "falsely", "real", "really",
+    "general", "generic", "specific", "various", "diverse",
+    "several", "numerous", "many", "much", "more", "most",
+    "less", "least", "few", "fewer", "own", "same", "different",
+    "other", "others", "another", "such", "some", "any", "all",
+    "each", "every", "both", "either", "neither", "enough",
+    "extra", "ordinary", "special", "particular", "certain",
+    "likely", "possible", "impossible", "important", "major",
+    "minor",
+    "hook", "hooks", "lesson", "lessons", "video", "videos",
+    "story", "stories", "topic", "topics", "concept", "concepts",
+    "idea", "ideas", "theme", "themes", "message", "messages",
+    "moral", "morals", "point", "points", "fact", "facts",
+    "truth", "truths", "knowledge", "wisdom", "skill", "skills",
+    "habit", "habits", "example", "examples", "overview",
+    "intro", "introduction", "summary", "conclusion",
+    "beginning", "ending", "middle", "journey", "journeys",
+    "adventure", "adventures", "magic", "mystery", "secret",
+    "secrets", "surprise", "surprises", "joy", "fun", "humor",
+    "humour", "nature", "history", "future", "past", "present",
+    "life", "lives", "world", "worlds", "time", "times",
+    "moment", "moments", "day", "days",
+    "leave",
+    "thing", "things", "something", "anything", "everything",
+    "nothing", "stuff", "object", "objects", "item", "items",
+    "element", "elements", "piece", "pieces", "part", "parts",
+    "side", "sides", "portion", "portions", "section",
+    "sections", "segment", "segments", "area", "areas",
+    "region", "regions", "zone", "zones", "place", "places",
+    "spot", "spots", "location", "locations", "shape", "shapes",
+    "size", "sizes", "style", "styles", "design", "designs",
+    "pattern", "patterns", "texture", "textures", "kind",
+    "kinds", "type", "types", "sort", "sorts", "way", "ways",
+    "manner", "means",
+    "rain", "rains", "raining", "rainy", "water", "waters",
+    "snow", "snows", "snowing", "snowy", "wind", "winds",
+    "windy", "weather", "air", "fog", "foggy", "mist", "misty",
+    "haze", "hazy", "storm", "storms", "stormy",
     "in", "on", "of", "to", "for", "with", "by", "from", "at",
     "as", "into", "over", "under", "out", "up", "down",
     "and", "or", "but", "not", "no", "so", "very", "just",
@@ -74,18 +143,58 @@ _SKIP_WORDS = frozenset({
     "make", "makes", "made", "carry", "carries", "carried",
     "take", "takes", "took", "taken", "thousand", "hundred",
     "one", "two", "also", "than", "then", "there", "here",
+    "watch", "watches", "watched", "watching",
+    "learn", "learns", "learned", "learning",
+    "practice", "practices", "practiced", "practicing",
+    "practise", "practises", "show", "shows", "showed",
+    "shown", "showing", "explain", "explains", "explained",
+    "explaining", "describe", "describes", "described",
+    "describing", "discover", "discovers", "discovered",
+    "discovering", "flow", "flows", "flowed", "flowing",
+    "form", "forms", "formed", "forming", "widen", "widens",
+    "widened", "widening", "settle", "settles", "settled",
+    "settling", "grow", "grows", "grew", "growing",
+    "build", "builds", "built", "building", "create",
+    "creates", "created", "creating", "use", "uses", "used",
+    "using", "help", "helps", "helped", "helping",
+    "work", "works", "worked", "working", "play", "plays",
+    "played", "playing", "run", "runs", "ran", "running",
+    "walk", "walks", "walked", "walking", "move", "moves",
+    "moved", "moving", "turn", "turns", "turned", "turning",
+    "open", "opens", "opened", "opening", "close", "closes",
+    "closed", "closing", "start", "starts", "started",
+    "starting", "begin", "begins", "began", "beginning",
+    "end", "ends", "ended", "ending",
     "detailed", "closeup", "crosssection", "timelapse", "vshaped",
     "animated", "animation", "diagram", "aerial", "view",
 })
 
 
+def _singular(word):
+    # Naive singular, so "robots" segments as "robot".
+    # Irregular foliage case: "leaves" is the plural of "leaf",
+    # never the verb "leave".
+    if word == "leaves":
+        return "leaf"
+    if (len(word) > 3 and word.endswith("s")
+            and not word.endswith("ss")):
+        return word[:-1]
+    return word
+
+
 def concept_for_subject(subject):
     """Reduce a scene description to one bare SAM concept word.
 
-    Examples: "small robot watching a screen" -> "robot",
+    Only a concrete visual noun qualifies: adjectives ("brilliant",
+    "beautiful", "powerful", "quickly"), abstract nouns ("hook"),
+    mass nouns without a bounded subject ("rain" as weather,
+    "water"), narration stopwords, verbs, and generic words are all
+    skipped. Examples: "small robot watching a screen" -> "robot",
     "flat vector illustration, small robot practicing" -> "robot",
     "Alpha robots learn by watching" -> "robot", "robot" -> "robot".
-    Raises ValueError when no usable word remains.
+    Raises ValueError when no usable word remains: the caller must
+    record the SAM check as skipped (no regen), never fall back to
+    a filler word as the concept.
     """
     if not isinstance(subject, str):
         raise ValueError("subject must be a non-empty str")
@@ -104,16 +213,16 @@ def concept_for_subject(subject):
     if not cleaned:
         raise ValueError("subject has no usable concept word: %r" % (subject,))
     for token in cleaned:
-        if token not in _SKIP_WORDS:
-            concept = token
-            break
-    else:
-        concept = cleaned[0]
-    # Naive singular: "robots" segments better as "robot".
-    if (len(concept) > 3 and concept.endswith("s")
-            and not concept.endswith("ss")):
-        concept = concept[:-1]
-    return concept
+        if token in _SKIP_WORDS:
+            continue
+        singular = _singular(token)
+        if singular in _SKIP_WORDS:
+            continue
+        return singular
+    raise ValueError(
+        "subject has no usable visual concept word (every word is "
+        "filler, an adjective, an abstract or mass noun, a verb, or "
+        "a generic word): %r" % (subject,))
 
 
 def _mime_for_path(image_path):
