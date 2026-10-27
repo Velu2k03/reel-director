@@ -23,7 +23,7 @@ No key is needed to try it. Without a key it runs in demo mode with a fixed demo
 | --- | --- |
 | Script | Muse Spark writes one narration line per scene in live mode, or the console uses a labelled demo script in demo mode |
 | Scenes | One image per narration line. Muse Image (`muse-image-1.0`) first in live mode, Pollinations as a per-scene fallback |
-| Voice | `edge-tts` first, `gTTS` as fallback. Meta has no batch text-to-speech API, so this part is not Meta |
+| Voice | `edge-tts` first, `gTTS` as fallback. The Meta Model API has no hosted text-to-speech endpoint to call with this key, its voice model transcribes speech to text, so voice stays outside Meta |
 | Assemble | ffmpeg builds one segment per scene, each with only its own caption, then concatenates the segments |
 | QC | The finished file is probed for duration, 1280x720 video, an audio stream, and audibility. A failed check fails the job instead of serving a broken video |
 
@@ -54,7 +54,6 @@ ui/scenes/        Storyboard art shown in the console
 test_meta.py      Key check only, prints status, never prints the key
 test_render.py    End to end render test, checks QC and per-scene captions
 PC-GUIDE.md       Full setup, run, and troubleshooting guide
-EVENT-BUILD-LOG.md  Dated log of what was built during the event window
 ```
 
 ## Configuration
@@ -75,18 +74,12 @@ python test_meta.py --chat     # also runs one tiny completion
 python test_render.py          # renders 2 scenes, checks QC and captions
 ```
 
-`test_render.py` needs network. It fails if any scene segment carries another scene's caption, which is the bug this renderer was written to fix: the earlier kit burned the full subtitle file into every segment, so every scene showed scene 1's caption.
+`test_render.py` needs network. It fails if any scene segment carries another scene's caption. That check guards the per-scene caption rule: a segment must only ever carry its own caption.
 
 ## Limits, stated plainly
 
 - Localhost only. There is no hosted demo and no deployment in this repo.
 - One render at a time. A second request while one is running returns 409.
-- Voice is edge-tts/gTTS, not Meta, because Meta offers no batch TTS API.
+- Voice is edge-tts/gTTS, not a Meta Model API call, because that API has no hosted text-to-speech endpoint. Its voice model, `muse-voice-transcribe-1.0`, transcribes speech to text, the opposite direction.
 - If Muse Image fails for a scene, that scene falls back to Pollinations. The QC line in the console says which backend was used: `meta`, `pollinations`, or `mixed`.
 - No license file yet, so reuse terms are not set. Do not assume a license from this README.
-
-## Hackathon note
-
-This repo is the Meta Global AI Developer Hackathon event build, Oct 26 to Nov 4, 2026, with its own commit history inside that window.
-
-The starting point was Velu's own Faceless Video Studio Agent kit, built Oct 14, 2026: https://github.com/Velu2k03/faceless-video-studio-agent. That kit is the declared base, not event work. Everything in `EVENT-BUILD-LOG.md` after Oct 26 is the event work, including the Meta script and image backends, the real render pipeline, the caption fix, and the console job endpoints. The submission demo shows event work only.
