@@ -1,14 +1,18 @@
-"""Meta image generation backend (event build, Oct 2026).
+"""Meta image generation backend (strict Meta-only build).
 
 Calls muse-image-1.0 through the Meta Model API:
   POST https://api.meta.ai/v1/images/generations
   {model, prompt, n, size, output_format, response_format}
 
+This is the ONLY image backend. There is no fallback: any API
+failure raises and the caller must fail the job with the real
+error instead of substituting another backend or a placeholder.
+
 The key is passed in by the caller (app.py reads it from the
 environment). It is never logged, never written to disk, and never
 committed. Size sets aspect ratio only, not exact pixels: a 1280x720
-request returns a 16:9 image (observed 2048x1152), which the ffmpeg
-assembly scales to 1280x720 without distortion.
+request returns a 16:9 image, which the ffmpeg assembly scales to
+1280x720 without distortion.
 
 Cost: $0.01 per image (Meta list price). A 5-scene video costs about
 $0.05, inside the $150 hackathon credits.
@@ -24,7 +28,7 @@ MODEL = "muse-image-1.0"
 
 def generate_image(prompt, out_path, api_key, timeout=180):
     """Generate one PNG image with Muse Image. Returns out_path.
-    Raises RuntimeError on any API failure (caller falls back)."""
+    Raises RuntimeError on any API failure (no fallback)."""
     resp = requests.post(
         API_URL,
         headers={"Authorization": "Bearer " + api_key,

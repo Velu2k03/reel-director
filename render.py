@@ -1,10 +1,12 @@
-"""ReelDirector render pipeline (event build, Oct 26-Nov 4 2026).
+"""ReelDirector render pipeline (strict Meta-only build).
 
-Implements the topic -> video path inside the event repo:
-  scenes (narration lines) -> Pollinations images -> voice
-  (edge-tts, gTTS fallback) -> ffmpeg assembly -> QC.
+Topic -> video path, all Meta:
+  scenes (narration lines) -> Meta muse-image-1.0 images (one per
+  scene) -> SAM 3.1 check per scene -> voice from the Meta
+  open-weight model facebook/mms-tts-eng run locally -> ffmpeg
+  assembly with per-scene captions -> QC gate.
 
-Two deliberate design rules in this module:
+Strict rules, no exceptions:
   1. CAPTION FIX: every segment carries ONLY its own caption, with
      zero-based timestamps. Burning a full subtitle file with
      absolute timestamps into every segment would make every scene
@@ -12,58 +14,143 @@ Two deliberate design rules in this module:
   2. REAL QC: the finished file is probed (duration, video stream,
      audio stream, audibility) and the run fails loudly if any
      check fails, instead of marking stages done on hope.
+  3. FAIL HARD: if any Meta call fails, the job fails with its real
+     error. There is no non-Meta backend, no placeholder image, and
+     no silent audio anywhere in this module. Without META_API_KEY,
+     live rendering is unavailable and generate_images / sam_check
+     raise instead of rendering anything.
 
-Non-Meta components are disclosed, not hidden: voice comes from
-edge-tts/gTTS, because the Meta Model API has no hosted
-text-to-speech endpoint. Its voice model transcribes speech to
-text, the opposite direction. Images
-are Meta muse-image-1.0 in live mode (key present), with Pollinations
-as the fallback when Meta fails and as the backend in demo mode
-(no key). The script step (Meta muse-spark-1.3) lives in app.py.
+Voice note: the Meta Model API has no hosted text-to-speech
+endpoint; its voice model, muse-voice-transcribe-1.0, is
+speech-to-text, the opposite direction, so it cannot narrate.
+Narration runs the Meta open-weight TTS model facebook/mms-tts-eng
+locally via transformers + torch.
 """
 
-import asyncio
 import json
 import os
+import shutil
 import subprocess
-import urllib.parse
-
-import requests
+import sys
 
 try:
     import meta_image
-except ImportError:  # noqa: F401 - render.py also runs standalone
+except ImportError:  # render.py also runs standalone
     meta_image = None
 
+try:
+    import meta_sam
+except ImportError:
+    meta_sam = None
+
+# Real output formats (Phase C). The selected aspect ratio drives
+# image prompts, ffmpeg scale, caption layout, preview metadata,
+# and QC — never CSS alone.
+ASPECTS = {
+    "9:16": (720, 1280),
+    "16:9": (1280, 720),
+}
+DEFAULT_ASPECT = "9:16"
+
+# Legacy names kept for older callers: the previous 16:9 default.
 WIDTH = 1280
 HEIGHT = 720
+
+
+def dims_for_aspect(aspect_ratio):
+    """(width, height) for a supported aspect ratio.
+
+    Raises ValueError naming the supported formats for anything
+    else: an unknown format never silently renders as another.
+    """
+    key = str(aspect_ratio or "").strip()
+    try:
+        return ASPECTS[key]
+    except KeyError:
+        raise ValueError(
+            "unsupported aspect ratio %r: supported formats are %s"
+            % (aspect_ratio, sorted(ASPECTS))) from None
+
+BACKENDS = {
+    "script": "muse-spark-1.3 draft + muse-wonder-1.0 revise",
+    "image": "muse-image-1.0",
+    "sam": "sam-3.1",
+    "voice": "facebook/mms-tts-eng (Meta open weights, local)",
+}
 
 META_STYLE = ("Flat vector illustration, clean white background, "
               "Facebook theme: Facebook blue #1877F2 accents, "
               "light gray #F0F2F5 surfaces, one small friendly robot "
               "director character with a clapperboard, ")
 
+VOICE_MODEL_ID = "facebook/mms-tts-eng"
 
-def _meta_prompt(scene):
+_voice = None  # lazy (tokenizer, model) cache
+
+TOOLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
+
+
+def _tool(name):
+    """Resolve a media binary: local tools/ dir first, then PATH.
+
+    setup.py may place a static build in tools/ (gitignored); render
+    and setup share this lookup so both agree on what "installed"
+    means. Falls back to the bare PATH name so a missing binary
+    still raises its natural error.
+    """
+    suffix = ".exe" if os.name == "nt" else ""
+    for cand in (os.path.join(TOOLS_DIR, name + suffix),
+                 os.path.join(TOOLS_DIR, "bin", name + suffix)):
+        if os.path.isfile(cand):
+            return cand
+    found = shutil.which(name)
+    return found or name
+
+
+def _ffmpeg_bin():
+    return _tool("ffmpeg")
+
+
+def _ffprobe_bin():
+    return _tool("ffprobe")
+
+
+def _meta_prompt(scene, aspect_ratio=None):
+    """Image prompt for one scene. The style block is configurable
+    per scene (Phase A): scene["style"] wins, META_STYLE is only the
+    default. Nothing here requires any character or colour. The
+    selected aspect ratio adds a real composition directive (not
+    CSS): vertical portrait art for 9:16, wide landscape art for
+    16:9."""
     visual = scene.get("visual") or scene["narration"]
     core = visual
     prefix = "flat vector illustration, "
     if core.lower().startswith(prefix):
         core = core[len(prefix):]
-    return (META_STYLE + "Scene: " + core +
+    style = (scene.get("style") or "").strip() or META_STYLE
+    if not style.endswith(" "):
+        style += " "
+    aspect = str(aspect_ratio or scene.get("aspect_ratio")
+                 or DEFAULT_ASPECT).strip()
+    if aspect not in ASPECTS:
+        aspect = DEFAULT_ASPECT
+    orientation = ("vertical 9:16 portrait composition, tall framing"
+                   if aspect == "9:16"
+                   else "wide 16:9 landscape composition, wide framing")
+    return (style + "Scene: " + core +
+            ", " + orientation +
             ", no text, no words, no letters anywhere in the image")
 
 
-def _pollinations_image(prompt, out_path):
-    url = ("https://image.pollinations.ai/prompt/"
-           + urllib.parse.quote(prompt)
-           + "?width=%d&height=%d&nologo=true" % (WIDTH, HEIGHT))
-    r = requests.get(url, timeout=180)
-    r.raise_for_status()
-    with open(out_path, "wb") as f:
-        f.write(r.content)
-    if os.path.getsize(out_path) == 0:
-        raise RuntimeError("empty image for %s" % out_path)
+def caption_style_for_aspect(aspect_ratio):
+    """Subtitle force_style for one format: readable size, safe
+    margins, bottom-center, in both formats."""
+    aspect = str(aspect_ratio or DEFAULT_ASPECT).strip()
+    if aspect == "9:16":
+        return ("FontSize=24,MarginV=110,Alignment=2,"
+                "Outline=1,BorderStyle=1")
+    return ("FontSize=20,MarginV=28,Alignment=2,"
+            "Outline=1,BorderStyle=1")
 
 
 def _run(cmd, timeout=300):
@@ -71,7 +158,7 @@ def _run(cmd, timeout=300):
 
 
 def _ffprobe(path):
-    r = _run(["ffprobe", "-v", "error", "-show_entries",
+    r = _run([_ffprobe_bin(), "-v", "error", "-show_entries",
               "stream=codec_type,codec_name,width,height",
               "-show_entries", "format=duration",
               "-of", "json", path])
@@ -84,58 +171,296 @@ def media_duration(path):
     return float(_ffprobe(path)["format"]["duration"])
 
 
-def generate_images(scenes, out_dir, api_key=None):
-    """One illustration per scene. Meta muse-image-1.0 first when a key
-    is present, Pollinations fallback per scene on any Meta failure,
-    Pollinations for every scene in demo mode (no key).
-    Returns (paths, backend) where backend is meta, pollinations, or
-    mixed."""
-    paths = []
-    backends = set()
-    for i, scene in enumerate(scenes):
+def _require_key(api_key):
+    if not api_key or not str(api_key).strip():
+        raise RuntimeError(
+            "META_API_KEY is not set: live mode is not available. "
+            "Set META_API_KEY in the environment; refusing to render "
+            "with any non-Meta backend.")
+
+
+def generate_images(scenes, out_dir, api_key=None, decisions=None,
+                      on_scene=None, aspect_ratio=None):
+    """One Meta muse-image-1.0 illustration per scene, composed for
+    the selected aspect ratio (9:16 vertical default, 16:9 wide).
+
+    Returns (paths, "meta"). On a Muse Image failure the scene is
+    retried once with Meta only, recorded in decisions; a second
+    failure raises the real error. The job fails, nothing is
+    substituted. on_scene(i, "image", {"path": path}) fires per
+    finished scene image when given.
+    """
+    _require_key(api_key)
+    if meta_image is None:
+        raise RuntimeError("meta_image backend module is unavailable")
+    aspect = str(aspect_ratio or DEFAULT_ASPECT).strip()
+    dims_for_aspect(aspect)  # fail fast on an unknown format
+
+    def _one(i, scene):
         path = os.path.join(out_dir, "scene_%d.png" % i)
-        used_meta = False
-        if api_key and meta_image is not None:
-            try:
-                meta_image.generate_image(_meta_prompt(scene), path, api_key)
-                used_meta = True
-            except Exception:
-                used_meta = False
-        if not used_meta:
-            prompt = scene.get("visual") or (
-                "flat vector illustration, " + scene["narration"])
-            _pollinations_image(prompt, path)
-        backends.add("meta" if used_meta else "pollinations")
-        paths.append(path)
-    backend = backends.pop() if len(backends) == 1 else "mixed"
-    return paths, backend
+        # Any exception propagates: no fallback, fail the job.
+        meta_image.generate_image(
+            _meta_prompt(scene, aspect_ratio=aspect), path, api_key)
+        if (not os.path.exists(path) or os.path.getsize(path) == 0):
+            raise RuntimeError("empty image for scene %d" % i)
+        return path
 
-
-def _edge_tts(text, out_path):
-    import edge_tts
-
-    async def _save():
-        comm = edge_tts.Communicate(text, "en-US-AriaNeural")
-        await comm.save(out_path)
-
-    asyncio.run(_save())
-
-
-def synthesize_voice(scenes, out_dir):
-    """Narration per scene. edge-tts first, gTTS fallback. Returns [paths]."""
     paths = []
     for i, scene in enumerate(scenes):
-        path = os.path.join(out_dir, "scene_%d.mp3" % i)
         try:
-            _edge_tts(scene["narration"], path)
-        except Exception:
-            from gtts import gTTS
+            paths.append(_one(i, scene))
+        except Exception as first:
+            try:
+                paths.append(_one(i, scene))
+            except Exception as second:
+                if on_scene is not None:
+                    on_scene(i, "image", {"ok": False,
+                                          "error": str(second)[:300]})
+                raise second
+            if decisions is not None:
+                decisions.append({
+                    "decision": (
+                        "scene %d image attempt 1 failed (%s), "
+                        "attempt 2 with Muse Image succeeded"
+                        % (i, str(first)[:160])),
+                    "stage": "scenes", "scene": i, "retried": True,
+                })
+        if on_scene is not None:
+            on_scene(i, "image", {"ok": True, "path": paths[-1]})
+    return paths, "meta"
 
-            gTTS(scene["narration"], lang="en").save(path)
+
+VOICE_REQUIREMENTS = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "requirements-voice.txt")
+
+
+def _install_voice_deps():
+    """One-time lazy install of the heavy voice dependencies.
+
+    Installer output streams to stdout so progress stays visible.
+    Raises the real error when the install itself fails.
+    """
+    print("Installing voice software for %s (one-time setup) ..."
+          % VOICE_MODEL_ID, flush=True)
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-r", VOICE_REQUIREMENTS])
+    if r.returncode != 0:
+        raise RuntimeError(
+            "voice install failed (pip exit %d installing %s); "
+            "install it by hand and retry" % (r.returncode, VOICE_MODEL_ID))
+
+
+def _load_voice():
+    """Load the Meta open-weight TTS voice once. Raises the real
+    error if the model cannot run on this machine."""
+    global _voice
+    if _voice is not None:
+        return _voice
+    try:
+        import torch
+        from transformers import AutoTokenizer, VitsModel
+    except ImportError:
+        _install_voice_deps()
+        try:
+            import torch
+            from transformers import AutoTokenizer, VitsModel
+        except ImportError as e:
+            raise RuntimeError(
+                "voice dependencies missing even after installing "
+                "requirements-voice.txt (need torch + transformers "
+                "for %s): %s" % (VOICE_MODEL_ID, e)) from e
+    try:
+        torch.set_num_threads(1)
+        tokenizer = AutoTokenizer.from_pretrained(VOICE_MODEL_ID)
+        model = VitsModel.from_pretrained(VOICE_MODEL_ID)
+        model.eval()
+    except Exception as e:
+        raise RuntimeError(
+            "could not load Meta open-weight voice %s on this "
+            "machine: %s" % (VOICE_MODEL_ID, e)) from e
+    _voice = (tokenizer, model)
+    return _voice
+
+
+def synthesize_voice(scenes, out_dir, decisions=None):
+    """Narration per scene from facebook/mms-tts-eng (local).
+
+    Returns [wav paths]. A silence or failure retries the scene
+    once with the same model, recorded in decisions; a second
+    failure raises the real error. No substitute voice, ever.
+    """
+    import numpy as np
+
+    tokenizer, model = _load_voice()
+    paths = []
+    for i, scene in enumerate(scenes):
+        text = scene["narration"]
+        if not text or not text.strip():
+            raise RuntimeError("empty narration for scene %d" % i)
+
+        def _one():
+            try:
+                import torch
+
+                inputs = tokenizer(text, return_tensors="pt")
+                with torch.no_grad():
+                    wave = model(**inputs).waveform[0].cpu().numpy()
+            except Exception as e:
+                raise RuntimeError(
+                    "voice synthesis failed for scene %d: %s" % (i, e)) from e
+            if wave.size == 0 or float(np.abs(wave).max()) < 1e-4:
+                raise RuntimeError(
+                    "voice synthesis produced silence for scene %d" % i)
+            return wave
+
+        try:
+            wave = _one()
+        except Exception as first:
+            wave = _one()  # retry once, same model; raises for real
+            if decisions is not None:
+                decisions.append({
+                    "decision": (
+                        "scene %d voice attempt 1 failed (%s), "
+                        "attempt 2 with %s succeeded"
+                        % (i, str(first)[:160], VOICE_MODEL_ID)),
+                    "stage": "voice", "scene": i, "retried": True,
+                })
+        path = os.path.join(out_dir, "scene_%d.wav" % i)
+        try:
+            import soundfile as sf
+
+            sf.write(path, wave, model.config.sampling_rate)
+        except Exception as e:
+            raise RuntimeError(
+                "could not write voice file for scene %d: %s" % (i, e)) from e
         if os.path.getsize(path) == 0:
             raise RuntimeError("empty audio for scene %d" % i)
         paths.append(path)
     return paths
+
+
+def _visual_subject(scene):
+    """The SAM subject for a scene, visual-first (Phase B fix).
+
+    Derives the concept from the visual prompt or the scene subject
+    via director.derive_sam_concept, never from narration stopwords
+    or generic verbs. Raises ValueError with a clear error when no
+    usable visual concept exists: the caller must fix the concept
+    from the visual prompt first, before regenerating any image.
+    """
+    try:
+        from director import derive_sam_concept
+    except ImportError as e:
+        raise RuntimeError(
+            "director module unavailable for SAM concept "
+            "derivation: %s" % e) from e
+    return derive_sam_concept(scene)
+
+
+def _closeup_prompt(scene):
+    """Revised prompt for a SAM retry: same META_STYLE, plus a
+    visual-subject close-up so the subject fills the frame. The
+    close-up names the visual subject, never bare narration, so a
+    bad concept cannot trigger a second regen for the same scene."""
+    try:
+        subject = _visual_subject(scene)["visual_subject"]
+    except ValueError:
+        subject = (scene.get("subject") or scene.get("visual")
+                   or scene["narration"])
+    return (_meta_prompt(scene) + ", centered single subject, "
+            "close-up view of " + subject)
+
+
+def sam_check(scenes, image_paths, api_key, decisions=None,
+              on_scene=None):
+    """SAM 3.1 segmentation check for every scene image.
+
+    Returns a list of per-scene result dicts (matches found, boxes).
+    The concept comes from the visual prompt or scene subject via
+    _visual_subject, never from narration stopwords: a bad concept
+    raises a clear error BEFORE any image is regenerated, so one bad
+    concept never costs two regens. A SAM API error raises and fails
+    the job. Zero matches with a good visual concept regenerates
+    that scene image once (Meta only, close-up prompt) and re-runs
+    SAM once, recorded in decisions with the visual subject and the
+    concept used; still-zero keeps the warning and continues, never
+    failing the video alone.
+    """
+    _require_key(api_key)
+    if meta_sam is None:
+        raise RuntimeError("meta_sam backend module is unavailable")
+    if meta_image is None:
+        raise RuntimeError("meta_image backend module is unavailable")
+    if len(scenes) != len(image_paths):
+        raise ValueError(
+            "scene/image count mismatch: %d scenes, %d images"
+            % (len(scenes), len(image_paths)))
+
+    results = []
+    for i, (scene, img) in enumerate(zip(scenes, image_paths)):
+        try:
+            derived = _visual_subject(scene)
+        except ValueError as e:
+            # Bad concept: fix the concept from the visual prompt
+            # first. No image is regenerated for this; the job
+            # fails visibly instead of burning a regen on filler.
+            if on_scene is not None:
+                on_scene(i, "sam", {"ok": False, "error": str(e)[:300]})
+            raise
+        subject = derived["visual_subject"]
+        if derived.get("fixed") and decisions is not None:
+            decisions.append({
+                "decision": (
+                    "scene %d SAM concept fixed from the visual "
+                    "prompt before checking (visual subject %r, "
+                    "concept %r from %s); no image regenerated for "
+                    "the bad concept"
+                    % (i, subject, derived["concept"],
+                       derived["source"])),
+                "stage": "sam", "scene": i, "retried": False,
+            })
+        # API errors propagate: fail the job with the real error.
+        try:
+            result = meta_sam.sam_segment(img, subject, api_key)
+        except Exception as e:
+            if on_scene is not None:
+                on_scene(i, "sam", {"ok": False, "error": str(e)[:300]})
+            raise
+        result["scene"] = i
+        result["subject"] = subject
+        result["concept"] = derived["concept"]
+        result["visual_subject"] = subject
+        if result.get("matches"):
+            results.append(result)
+            if on_scene is not None:
+                on_scene(i, "sam", {"ok": True, "result": result})
+            continue
+        meta_image.generate_image(_closeup_prompt(scene), img, api_key)
+        second = meta_sam.sam_segment(img, subject, api_key)
+        second["scene"] = i
+        second["subject"] = subject
+        second["concept"] = derived["concept"]
+        second["visual_subject"] = subject
+        if decisions is not None:
+            decisions.append({
+                "decision": (
+                    "scene %d SAM attempt 1 found 0 matches for "
+                    "visual subject %r (concept %r), so the image "
+                    "was regenerated once with a close-up prompt "
+                    "and SAM re-ran: attempt 2 found %d matches%s"
+                    % (
+                        i, subject, derived["concept"],
+                        second.get("matches", 0),
+                        "" if second.get("matches")
+                        else ", warning kept, video continues")),
+                "stage": "sam", "scene": i, "retried": True,
+                "attempt1_matches": 0,
+                "attempt2_matches": second.get("matches", 0),
+            })
+        results.append(second)
+        if on_scene is not None:
+            on_scene(i, "sam", {"ok": True, "result": second})
+    return results
 
 
 def _stamp(seconds):
@@ -158,13 +483,26 @@ def _segment_srt(narration, duration, path):
             _stamp(0), _stamp(duration), narration))
 
 
-def assemble(scenes, image_paths, audio_paths, topic, out_dir):
-    """Per-scene segments (image + voice + own caption), then concat."""
+def assemble(scenes, image_paths, audio_paths, topic, out_dir,
+             on_scene=None, aspect_ratio=None):
+    """Per-scene segments (image + voice + own caption), then concat.
+
+    The segment frame matches the selected aspect ratio (9:16
+    vertical 720x1280 default, 16:9 1280x720), and captions render
+    with per-format size and safe margins. Captions are required:
+    if a scene's subtitle burn fails, the job fails with the real
+    ffmpeg error. There is no silent fallback that drops captions
+    while QC reports success. on_scene(i, "assembled", {"duration":
+    dur}) fires per finished segment.
+    """
     if not (len(scenes) == len(image_paths) == len(audio_paths)):
         raise ValueError(
             "scene/image/audio count mismatch: %d scenes, %d images, "
             "%d audio files" % (len(scenes), len(image_paths),
                                 len(audio_paths)))
+    aspect = str(aspect_ratio or DEFAULT_ASPECT).strip()
+    width, height = dims_for_aspect(aspect)
+    force_style = caption_style_for_aspect(aspect)
     parts = []
     for i, (scene, img, aud) in enumerate(
             zip(scenes, image_paths, audio_paths)):
@@ -173,35 +511,183 @@ def assemble(scenes, image_paths, audio_paths, topic, out_dir):
         _segment_srt(scene["narration"], dur, srt)
         seg = os.path.join(out_dir, "seg_%d.mp4" % i)
         srt_esc = _escape_filter_path(os.path.abspath(srt))
-        cmd = ["ffmpeg", "-y", "-loop", "1", "-i", img, "-i", aud,
-               "-vf", "scale=%d:%d,subtitles='%s'" % (WIDTH, HEIGHT, srt_esc),
-               "-c:v", "libx264", "-tune", "stillimage",
+        ffmpeg = _ffmpeg_bin()
+        vf = ("scale=%d:%d,subtitles='%s':force_style='%s'"
+              % (width, height, srt_esc, force_style))
+        cmd = [ffmpeg, "-y", "-loop", "1", "-i", img, "-i", aud,
+               "-vf", vf,
+               "-c:v", "libx264", "-pix_fmt", "yuv420p",
+               "-tune", "stillimage",
                "-c:a", "aac", "-t", str(dur), seg]
         r = _run(cmd)
         if r.returncode != 0:
-            # Captions failed (missing fonts etc.): retry without them.
-            cmd = ["ffmpeg", "-y", "-loop", "1", "-i", img, "-i", aud,
-                   "-vf", "scale=%d:%d" % (WIDTH, HEIGHT),
-                   "-c:v", "libx264", "-tune", "stillimage",
-                   "-c:a", "aac", "-t", str(dur), seg]
-            _run(cmd, timeout=300).check_returncode()
+            # Fail hard: a required caption that cannot render must
+            # fail the job (or be reported degraded), never vanish
+            # silently while the video passes QC.
+            detail = ((r.stderr or "").strip().splitlines() or [""])[-1]
+            err = RuntimeError(
+                "caption rendering failed for scene %d "
+                "(subtitles filter exit %d): %s"
+                % (i, r.returncode, detail[:300]))
+            if on_scene is not None:
+                on_scene(i, "assembled",
+                         {"ok": False, "error": str(err)[:300]})
+            raise err
+        if (not os.path.exists(seg) or os.path.getsize(seg) == 0):
+            err = RuntimeError(
+                "empty segment for scene %d: captions unconfirmed" % i)
+            if on_scene is not None:
+                on_scene(i, "assembled",
+                         {"ok": False, "error": str(err)[:300]})
+            raise err
         parts.append(seg)
+        if on_scene is not None:
+            on_scene(i, "assembled", {"ok": True, "duration": dur})
     lst = os.path.join(out_dir, "parts.txt")
     with open(lst, "w") as f:
         for p in parts:
             f.write("file '%s'\n" % os.path.abspath(p))
     safe = "".join(c if c.isalnum() else "_" for c in topic)[:30]
     final = os.path.join(out_dir, "final_%s.mp4" % safe)
-    _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-          "-i", lst, "-c", "copy", final], timeout=300).check_returncode()
+    _run([_ffmpeg_bin(), "-y", "-f", "concat", "-safe", "0",
+          "-i", lst, "-c", "copy", "-movflags", "+faststart",
+          final], timeout=300).check_returncode()
     return final
 
 
-def qc_report(path):
-    """Real checks on the finished file. Returns a dict with pass/fail."""
-    report = {"file": os.path.basename(path), "passed": False}
+def verify_captions(scenes, out_dir):
+    """Check every scene's segment SRT carries ONLY its own caption.
+
+    Returns (records, ok): records is one dict per scene
+    {"scene", "srt", "has_own_caption", "clean"} and ok is True only
+    when every scene's caption is present and no other scene's
+    caption leaked in. Missing files count as failures, never as
+    silent passes.
+    """
+    records = []
+    ok = True
+    for i, scene in enumerate(scenes):
+        srt_path = os.path.join(out_dir, "scene_%d.srt" % i)
+        rec = {"scene": i, "srt": os.path.basename(srt_path),
+               "has_own_caption": False, "clean": False}
+        try:
+            with open(srt_path, encoding="utf-8") as f:
+                text = f.read()
+        except OSError:
+            records.append(rec)
+            ok = False
+            continue
+        own = scene["narration"] in text
+        leaked = any(other["narration"] in text
+                     for j, other in enumerate(scenes) if j != i)
+        rec["has_own_caption"] = bool(own)
+        rec["clean"] = bool(own and not leaked)
+        if not rec["clean"]:
+            ok = False
+        records.append(rec)
+    return records, ok
+
+
+def qc_report(path, sam_results=None, backends=None, decisions=None,
+             revision_note=None, captions=None, captions_ok=None,
+             director_decisions=None, unmet_criteria=None,
+             editorial_pass=None, estimate_basis=None,
+             aspect_ratio=None, expected_width=None,
+             expected_height=None):
+    """Real checks on the finished file. Returns a dict with pass/fail.
+
+    sam_results (list of per-scene SAM dicts) is recorded in the
+    report; zero SAM matches anywhere is a warning only and never
+    fails the video by itself. decisions lists every retry decision
+    in plain words (or one explicit "no retry needed" entry);
+    director_decisions appends the director loop's per-scene revision
+    and surfacing decisions. revision_note records Wonder's change
+    note when one exists. captions is the per-scene caption record
+    list from verify_captions and captions_ok its verdict; a missing
+    or failed caption verdict fails QC (degraded output must never
+    pass as a full success). report["technical"] holds file-level
+    validation; report["editorial"] holds model-review material (SAM
+    warnings, revision note, retry decisions, director verdict),
+    kept separate on purpose: a technically valid file is never
+    labelled "high quality" on that basis alone. unmet_criteria
+    (each with scene and criterion) forces editorial_pass False: a
+    job with unmet editorial criteria is never labelled as fully
+    passed editorially, even when technical QC passes.
+    """
+    if aspect_ratio is not None:
+        exp_w, exp_h = dims_for_aspect(aspect_ratio)
+        aspect = str(aspect_ratio).strip()
+    elif expected_width is not None and expected_height is not None:
+        exp_w, exp_h = int(expected_width), int(expected_height)
+        aspect = "%d:%d" % (exp_w, exp_h)
+        for key, dims in ASPECTS.items():
+            if dims == (exp_w, exp_h):
+                aspect = key
+    else:
+        exp_w, exp_h, aspect = WIDTH, HEIGHT, "16:9"
+    report = {"file": os.path.basename(path), "passed": False,
+              "aspect_ratio": aspect,
+              "expected_dimensions": "%dx%d" % (exp_w, exp_h)}
+    if captions is not None:
+        report["captions"] = list(captions)
+    report["captions_ok"] = bool(captions_ok) if captions_ok else False
+    report["backends"] = dict(backends) if backends else dict(BACKENDS)
+    merged = list(decisions) if decisions else []
+    if director_decisions:
+        merged.extend(director_decisions)
+    if merged:
+        report["decisions"] = merged
+    else:
+        report["decisions"] = [{
+            "decision": "no retry needed: every scene passed "
+                        "on the first attempt",
+            "retried": False,
+        }]
+    unmet = list(unmet_criteria) if unmet_criteria else []
+    if unmet:
+        editorial_ok = False
+    elif editorial_pass is None:
+        editorial_ok = True
+    else:
+        editorial_ok = bool(editorial_pass)
+    if revision_note:
+        report["revision_note"] = revision_note
+    if director_decisions or unmet or estimate_basis:
+        report["director"] = {
+            "corrections": len([d for d in (director_decisions or [])
+                                if d.get("status") == "revised"]),
+            "unmet_criteria": unmet,
+            "editorial_pass": editorial_ok,
+        }
+        if estimate_basis:
+            report["director"]["estimate_basis"] = estimate_basis
+    if sam_results is not None:
+        report["sam"] = [
+            {"scene": r.get("scene"), "subject": r.get("subject"),
+             "concept": r.get("concept"),
+             "visual_subject": r.get("visual_subject",
+                                    r.get("subject")),
+             "matches": r.get("matches"), "boxes": r.get("boxes"),
+             "warning": r.get("warning")}
+            for r in sam_results
+        ]
+        warnings = [r.get("warning") for r in sam_results if r.get("warning")]
+        if warnings:
+            report["sam_warnings"] = warnings
     if not os.path.exists(path) or os.path.getsize(path) == 0:
         report["error"] = "missing or empty output file"
+        report["caption_error"] = (
+            "caption evidence missing or failed: required captions "
+            "must render for every scene before QC can pass")
+        report["technical"] = {"duration_ok": False,
+                               "resolution_ok": False,
+                               "audio_ok": False, "audible_ok": False,
+                               "captions_ok": False}
+        report["editorial"] = {"sam_warnings": report.get("sam_warnings", []),
+                               "revision_note": revision_note,
+                               "decisions": report.get("decisions", []),
+                               "editorial_pass": editorial_ok,
+                               "unmet_criteria": unmet}
         return report
     probe = _ffprobe(path)
     report["duration"] = float(probe["format"]["duration"])
@@ -212,42 +698,146 @@ def qc_report(path):
         video[0].get("width"), video[0].get("height"),
         video[0].get("codec_name")) if video else None
     report["audio"] = audio[0].get("codec_name") if audio else None
-    r = _run(["ffmpeg", "-v", "info", "-i", path, "-af", "volumedetect",
+    r = _run([_ffmpeg_bin(), "-v", "info", "-i", path, "-af", "volumedetect",
               "-vn", "-sn", "-dn", "-f", "null", os.devnull])
     mean = None
     for line in (r.stderr or "").splitlines():
         if "mean_volume" in line:
             mean = float(line.split("mean_volume:")[1].split("dB")[0].strip())
     report["mean_volume_db"] = mean
-    report["passed"] = bool(
-        report["duration"] > 0 and video
-        and video[0].get("width") == WIDTH
-        and video[0].get("height") == HEIGHT
+    dims_ok = bool(video and video[0].get("width") == exp_w
+                     and video[0].get("height") == exp_h)
+    technical_ok = bool(
+        (report.get("duration") or 0) > 0 and video and dims_ok
         and audio and mean is not None and mean > -60)
+    captions_ok_bool = bool(report["captions_ok"])
+    if not captions_ok_bool:
+        report["caption_error"] = (
+            "caption evidence missing or failed: required captions "
+            "must render for every scene before QC can pass")
+    if not dims_ok:
+        got = ("%dx%d" % (video[0].get("width"),
+                          video[0].get("height")) if video else "no video")
+        report["dimension_error"] = (
+            "output is %s but the selected format %s needs %dx%d: "
+            "degraded output, refusing to pass" % (got, aspect,
+                                                   exp_w, exp_h))
+    report["technical"] = {
+        "duration_ok": bool((report.get("duration") or 0) > 0),
+        "resolution_ok": dims_ok,
+        "audio_ok": bool(audio),
+        "audible_ok": bool(mean is not None and mean > -60),
+        "captions_ok": captions_ok_bool,
+    }
+    report["editorial"] = {
+        "sam_warnings": report.get("sam_warnings", []),
+        "revision_note": revision_note,
+        "decisions": report.get("decisions", []),
+        "editorial_pass": editorial_ok,
+        "unmet_criteria": unmet,
+    }
+    report["passed"] = bool(technical_ok and captions_ok_bool)
     return report
 
 
-def run_pipeline(scenes, topic, out_dir, on_stage=None, api_key=None):
-    """Full render. on_stage(name, state) reports real progress.
-    Returns (final_path, qc_report). Raises on any failure."""
+def run_pipeline(scenes, topic, out_dir, on_stage=None, api_key=None,
+                 revision_note=None, on_scene=None, director_log=None,
+                 aspect_ratio=None):
+    """Full render: images -> SAM check -> voice -> assemble -> QC.
+
+    Returns (final_path, qc_report). The selected aspect ratio
+    (9:16 vertical 720x1280 default, 16:9 1280x720) drives the image
+    prompts, the ffmpeg frame, the caption layout, and QC: QC fails
+    when the finished dimensions do not match the selected format.
+    Raises on any failure; nothing is substituted and no placeholder
+    is ever served. Every retry decision is threaded through
+    decisions into the QC report. on_scene(i, event, info) fires
+    per-scene progress (image, sam, voice with duration, assembled)
+    when given. Caption evidence is verified per scene and QC passes
+    only when every required caption rendered. director_log (from
+    director.revise_loop) adds the director's revision/surfacing
+    decisions and the editorial verdict to the QC report; technical
+    QC and the editorial verdict stay separate.
+    """
+    aspect = str(aspect_ratio or DEFAULT_ASPECT).strip()
+    width, height = dims_for_aspect(aspect)
     os.makedirs(out_dir, exist_ok=True)
+    decisions = []
+    director_entries = []
+    unmet = []
+    editorial_ok = None
+    estimate_basis = None
+    if director_log is not None:
+        try:
+            from director import director_decisions as _decisions
+            id_to_index = {}
+            for i, scene in enumerate(scenes):
+                sid = scene.get("id")
+                if sid:
+                    id_to_index[sid] = i
+                id_to_index["scene-%d" % (i + 1)] = i
+            director_entries = _decisions(director_log, id_to_index)
+        except ImportError:
+            director_entries = []
+        unmet = list(director_log.get("unmet_criteria", []))
+        editorial_ok = bool(director_log.get("editorial_pass",
+                                             not unmet)) and not unmet
+        estimate_basis = director_log.get("estimate_basis")
+        if (not director_entries and not unmet
+                and director_log.get("editorial_pass")):
+            director_entries = [{
+                "decision": (
+                    "director critique passed with no revisions "
+                    "needed (%d cycle(s) checked)"
+                    % director_log.get("cycles_used", 0)),
+                "stage": "director", "scene": None,
+                "status": "passed", "retried": False,
+            }]
 
     def mark(name, state):
         if on_stage:
             on_stage(name, state)
 
+    def scene_mark(i, event, info):
+        if on_scene:
+            on_scene(i, event, info)
+
     mark("scenes", "working")
-    image_paths, image_backend = generate_images(scenes, out_dir, api_key)
+    image_paths, image_backend = generate_images(
+        scenes, out_dir, api_key, decisions, on_scene=on_scene,
+        aspect_ratio=aspect)
     mark("scenes", "done")
+    mark("sam", "working")
+    sam_results = sam_check(scenes, image_paths, api_key, decisions,
+                            on_scene=on_scene)
+    mark("sam", "done")
     mark("voice", "working")
-    audio_paths = synthesize_voice(scenes, out_dir)
+    audio_paths = synthesize_voice(scenes, out_dir, decisions)
+    for i, aud in enumerate(audio_paths):
+        try:
+            dur = media_duration(aud)
+        except Exception:
+            dur = None
+        scene_mark(i, "voice", {"ok": True, "duration": dur, "path": aud})
     mark("voice", "done")
     mark("assemble", "working")
-    final = assemble(scenes, image_paths, audio_paths, topic, out_dir)
+    final = assemble(scenes, image_paths, audio_paths, topic, out_dir,
+                     on_scene=on_scene, aspect_ratio=aspect)
     mark("assemble", "done")
     mark("qc", "working")
-    report = qc_report(final)
+    caption_records, captions_ok = verify_captions(scenes, out_dir)
+    report = qc_report(final, sam_results=sam_results,
+                       backends=dict(BACKENDS), decisions=decisions,
+                       revision_note=revision_note,
+                       captions=caption_records, captions_ok=captions_ok,
+                       director_decisions=director_entries,
+                       unmet_criteria=unmet,
+                       editorial_pass=editorial_ok,
+                       estimate_basis=estimate_basis,
+                       aspect_ratio=aspect)
     report["image_backend"] = image_backend
+    report["width"] = width
+    report["height"] = height
     if not report["passed"]:
         mark("qc", "error")
         raise RuntimeError("QC failed: %r" % (report,))

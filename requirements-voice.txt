@@ -1,0 +1,9 @@
+# Heavy voice deps for facebook/mms-tts-eng (local Meta open-weight TTS).
+# Installed lazily by render.py on the first real voice run, so setup
+# stays light.
+# torch (CPU build) resolves through the extra index below.
+--extra-index-url https://download.pytorch.org/whl/cpu
+transformers==5.21.0
+torch==2.14.1+cpu
+soundfile==0.14.0
+scipy==1.18.1
