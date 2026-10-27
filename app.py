@@ -377,13 +377,20 @@ def _nonempty_lines(text, who):
     return lines
 
 
-def _live_script_lines(topic):
+def _live_script_lines(topic, api_key=None):
     """Spark draft, then Wonder revise with change note. Both must
     succeed; any failure raises and fails the job. Returns
-    ([5 lines], change_note)."""
-    draft = draft_script(topic)
+    ([5 lines], change_note).
+
+    The key (pasted in-memory key or environment, via _api_key)
+    is threaded into both model calls: a pasted key with no
+    environment key still generates. Without any key the backend
+    raises its clear missing-key error, never a silent fallback.
+    """
+    key = api_key if api_key is not None else _api_key()
+    draft = draft_script(topic, api_key=key)
     _nonempty_lines(draft, "Spark")
-    final, note = revise_with_note(draft, topic)
+    final, note = revise_with_note(draft, topic, api_key=key)
     return _nonempty_lines(final, "Wonder"), note
 
 
@@ -396,7 +403,7 @@ def script():
     if not _live_mode():
         return jsonify({"script": DEMO_PREVIEW_SCRIPT, "mode": "demo-preview",
                         "note": DEMO_PREVIEW_NOTE})
-    lines, note = _live_script_lines(topic)
+    lines, note = _live_script_lines(topic, api_key=_api_key())
     return jsonify({"script": lines, "mode": "live", "revision_note": note})
 
 
@@ -457,7 +464,7 @@ def _parse_scene_revision(raw):
     return None, None
 
 
-def _spark_critique_raw(brief, scenes, measured_wps=None):
+def _spark_critique_raw(brief, scenes, measured_wps=None, api_key=None):
     """Muse Spark critique calls for the production director loop.
 
     Returns the raw model text; director.combined_critique parses
@@ -474,6 +481,7 @@ def _spark_critique_raw(brief, scenes, measured_wps=None):
     durations the rule-based floor already estimated.
     """
     scene_ids = [s.get("id") for s in scenes]
+    key = api_key if api_key is not None else _api_key()
     last = None
     previous = None
     for attempt in (0, 1, 2):
@@ -481,13 +489,13 @@ def _spark_critique_raw(brief, scenes, measured_wps=None):
             if attempt == 0:
                 raw = critique_scenes(
                     brief.topic, brief.audience,
-                    brief.target_duration_s, scenes)
+                    brief.target_duration_s, scenes, api_key=key)
             else:
                 raw = repair_critique(
                     previous_bad=previous, problem=str(last)[:300],
                     topic=brief.topic, audience=brief.audience,
                     target_duration_s=brief.target_duration_s,
-                    scene_ids=scene_ids)
+                    scene_ids=scene_ids, api_key=key)
         except Exception as exc:  # noqa: BLE001 - retried, then raised
             last = exc
             previous = None
@@ -504,7 +512,7 @@ def _spark_critique_raw(brief, scenes, measured_wps=None):
         "Spark critique call failed: %s" % (last,)) from last
 
 
-def _spark_revise_scene(scene, reasons, brief):
+def _spark_revise_scene(scene, reasons, brief, api_key=None):
     """Revise ONE flagged scene with Muse Spark (same model only).
 
     The brief (topic, audience, target duration) and the exact
@@ -513,13 +521,14 @@ def _spark_revise_scene(scene, reasons, brief):
     real error propagates so the job fails hard (Meta-only rule).
     Returns (new_narration, new_visual).
     """
+    key = api_key if api_key is not None else _api_key()
     last = None
     for _ in (1, 2):
         try:
             raw = revise_scene(
                 brief.topic, brief.audience,
                 brief.target_duration_s, scene["narration"],
-                scene["visual_prompt"], reasons)
+                scene["visual_prompt"], reasons, api_key=key)
         except Exception as exc:  # noqa: BLE001 - retried once, then raised
             last = exc
             continue
@@ -601,11 +610,12 @@ def _run_job(job_id, topic, script_lines=None, style=None,
             mark("revise", "working")
         else:
             mark("script", "working")
-            draft = draft_script(topic)
+            draft = draft_script(topic, api_key=_api_key())
             _nonempty_lines(draft, "Spark")
             mark("script", "done")
             mark("revise", "working")
-            final_text, note = revise_with_note(draft, topic)
+            final_text, note = revise_with_note(
+                draft, topic, api_key=_api_key())
             lines = _nonempty_lines(final_text, "Wonder")
         # Phase B bounded director loop, inside the revise stage:
         # structured plan -> rule-based critique floor plus Muse
@@ -626,12 +636,18 @@ def _run_job(job_id, topic, script_lines=None, style=None,
                                  measured_wps=None):
             return director.combined_critique(
                 brief_arg, scenes,
-                spark_critique_fn=_spark_critique_raw,
+                spark_critique_fn=lambda b, s, measured_wps=None: (
+                    _spark_critique_raw(b, s, measured_wps=measured_wps,
+                                        api_key=_api_key())),
                 measured_wps=measured_wps)
+
+        def _production_revise(scene_arg, reasons_arg, brief_arg):
+            return _spark_revise_scene(scene_arg, reasons_arg,
+                                       brief_arg, api_key=_api_key())
 
         plan, director_log = director.revise_loop(
             brief, plan, critique_fn=_production_critique,
-            revise_scene_fn=_spark_revise_scene)
+            revise_scene_fn=_production_revise)
         failed = [a for a in director_log.get("attempts", [])
                   if a.get("status") == "failed"]
         if failed:
@@ -1073,8 +1089,10 @@ def regenerate_scene(job_id, index):
         return jsonify({"error": _safe_error(exc)}), 502
     try:
         path = os.path.join(out_dir, "scene_%d.png" % index)
-        meta_image.generate_image(render._meta_prompt(plan), path,
-                                  _api_key())
+        aspect = job.get("aspect_ratio") or render.DEFAULT_ASPECT
+        meta_image.generate_image(
+            render._meta_prompt(plan, aspect_ratio=aspect), path,
+            _api_key(), aspect_ratio=aspect)
         if (not os.path.exists(path) or os.path.getsize(path) == 0):
             raise RuntimeError("empty image for scene %d" % index)
         sam_result = meta_sam.sam_segment(

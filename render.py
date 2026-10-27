@@ -199,8 +199,12 @@ def generate_images(scenes, out_dir, api_key=None, decisions=None,
     def _one(i, scene):
         path = os.path.join(out_dir, "scene_%d.png" % i)
         # Any exception propagates: no fallback, fail the job.
+        # Native aspect is requested from the API (720x1280 for
+        # 9:16, 1280x720 for 16:9); assemble center-crops anyway so
+        # a wide source file still never stretches.
         meta_image.generate_image(
-            _meta_prompt(scene, aspect_ratio=aspect), path, api_key)
+            _meta_prompt(scene, aspect_ratio=aspect), path, api_key,
+            aspect_ratio=aspect)
         if (not os.path.exists(path) or os.path.getsize(path) == 0):
             raise RuntimeError("empty image for scene %d" % i)
         return path
@@ -357,7 +361,7 @@ def _visual_subject(scene):
     return derive_sam_concept(scene)
 
 
-def _closeup_prompt(scene):
+def _closeup_prompt(scene, aspect_ratio=None):
     """Revised prompt for a SAM retry: same META_STYLE, plus a
     visual-subject close-up so the subject fills the frame. The
     close-up names the visual subject, never bare narration, so a
@@ -367,7 +371,8 @@ def _closeup_prompt(scene):
     except ValueError:
         subject = (scene.get("subject") or scene.get("visual")
                    or scene["narration"])
-    return (_meta_prompt(scene) + ", centered single subject, "
+    return (_meta_prompt(scene, aspect_ratio=aspect_ratio)
+            + ", centered single subject, "
             "close-up view of " + subject)
 
 
@@ -385,7 +390,7 @@ except ImportError:  # pragma: no cover - meta_sam ships with the repo
 
 
 def sam_check(scenes, image_paths, api_key, decisions=None,
-              on_scene=None):
+              on_scene=None, aspect_ratio=None):
     """SAM 3.1 segmentation check for every scene image.
 
     Returns a list of per-scene result dicts (matches found, boxes).
@@ -508,7 +513,12 @@ def sam_check(scenes, image_paths, api_key, decisions=None,
             if on_scene is not None:
                 on_scene(i, "sam", {"ok": True, "result": result})
             continue
-        meta_image.generate_image(_closeup_prompt(scene), img, api_key)
+        regen_kwargs = {}
+        if aspect_ratio is not None:
+            regen_kwargs["aspect_ratio"] = aspect_ratio
+        meta_image.generate_image(
+            _closeup_prompt(scene, aspect_ratio=aspect_ratio), img,
+            api_key, **regen_kwargs)
         second = meta_sam.sam_segment(img, subject, api_key)
         second["scene"] = i
         second["subject"] = subject
@@ -562,11 +572,14 @@ def assemble(scenes, image_paths, audio_paths, topic, out_dir,
 
     The segment frame matches the selected aspect ratio (9:16
     vertical 720x1280 default, 16:9 1280x720), and captions render
-    with per-format size and safe margins. Captions are required:
-    if a scene's subtitle burn fails, the job fails with the real
-    ffmpeg error. There is no silent fallback that drops captions
-    while QC reports success. on_scene(i, "assembled", {"duration":
-    dur}) fires per finished segment.
+    with per-format size and safe margins. Source art is
+    center-cropped to the selected format and then scaled to the
+    exact output dimensions: a 16:9 source in a 9:16 job loses its
+    side edges, it never stretches. Captions are required: if a
+    scene's subtitle burn fails, the job fails with the real ffmpeg
+    error. There is no silent fallback that drops captions while QC
+    reports success. on_scene(i, "assembled", {"duration": dur})
+    fires per finished segment.
     """
     if not (len(scenes) == len(image_paths) == len(audio_paths)):
         raise ValueError(
@@ -576,6 +589,11 @@ def assemble(scenes, image_paths, audio_paths, topic, out_dir,
     aspect = str(aspect_ratio or DEFAULT_ASPECT).strip()
     width, height = dims_for_aspect(aspect)
     force_style = caption_style_for_aspect(aspect)
+    # Center-crop to the target aspect first (a no-op when the
+    # source already matches), then scale exact: never stretch.
+    crop_scale = ("crop=w='min(iw,ih*%d/%d)':h='min(ih,iw*%d/%d)',"
+                  "scale=%d:%d" % (width, height, height, width,
+                                   width, height))
     parts = []
     for i, (scene, img, aud) in enumerate(
             zip(scenes, image_paths, audio_paths)):
@@ -585,8 +603,8 @@ def assemble(scenes, image_paths, audio_paths, topic, out_dir,
         seg = os.path.join(out_dir, "seg_%d.mp4" % i)
         srt_esc = _escape_filter_path(os.path.abspath(srt))
         ffmpeg = _ffmpeg_bin()
-        vf = ("scale=%d:%d,subtitles='%s':force_style='%s'"
-              % (width, height, srt_esc, force_style))
+        vf = ("%s,subtitles='%s':force_style='%s'"
+              % (crop_scale, srt_esc, force_style))
         cmd = [ffmpeg, "-y", "-loop", "1", "-i", img, "-i", aud,
                "-vf", vf,
                "-c:v", "libx264", "-pix_fmt", "yuv420p",
@@ -882,7 +900,7 @@ def run_pipeline(scenes, topic, out_dir, on_stage=None, api_key=None,
     mark("scenes", "done")
     mark("sam", "working")
     sam_results = sam_check(scenes, image_paths, api_key, decisions,
-                            on_scene=on_scene)
+                            on_scene=on_scene, aspect_ratio=aspect)
     mark("sam", "done")
     mark("voice", "working")
     audio_paths = synthesize_voice(scenes, out_dir, decisions)
