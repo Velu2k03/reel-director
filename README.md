@@ -21,7 +21,7 @@ Meta parts: Muse Spark (script draft, plus the director loop: scene critique and
    ```
    (On Windows run `start.bat` instead.)
 
-The key can come from either of two options: copy `.env.example` to `.env` and set `META_API_KEY` there (preferred for repeat runs; `.env` is gitignored and only fills variables the real environment does not already set), or paste the key in the page when asked (kept in server memory only, never written to disk). Without a key the console shows a labelled preview script only and refuses to produce a video. That is expected, not an error.
+The key can come from either of two options: copy `.env.example` to `.env` and set `META_API_KEY` there (preferred for repeat runs; `.env` is gitignored and only fills variables the real environment does not already set), or paste the key in the page when asked (kept in server memory only, never written to disk). The pasted key drives everything: script draft and revise, the director critique and scene-revision loop, images, and SAM, not just the health check. Verified live with no environment key set: pasting a key then running script generation returns a live 5-line script. Without any key the console shows a labelled preview script only and refuses to produce a video. That is expected, not an error.
 
 ## How it works
 

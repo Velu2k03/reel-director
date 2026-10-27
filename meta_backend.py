@@ -17,8 +17,9 @@ Both steps must succeed for a live render; there is no non-Meta
 fallback. Token budgets are generous on purpose: Spark and Wonder
 are reasoning models and spend hidden reasoning tokens first.
 
-The key is read from the environment only. It is never printed,
-logged, written to disk, or committed.
+The key comes from the caller (api_key argument, which app.py
+fills from the pasted in-memory key or the environment). It is
+never printed, logged, written to disk, or committed.
 """
 
 import os
@@ -74,8 +75,12 @@ def list_models(api_key=None, timeout=30):
     return models
 
 
-def chat(prompt, model=None, max_tokens=512):
+def chat(prompt, model=None, max_tokens=512, api_key=None):
     """One chat completion. Returns the assistant text only.
+
+    api_key overrides the environment (the console accepts a pasted
+    in-memory key); without either, _headers raises the clear
+    missing-key error instead of calling the API keyless.
 
     Raises on any API failure: the caller must fail the job, never
     substitute another backend.
@@ -90,7 +95,7 @@ def chat(prompt, model=None, max_tokens=512):
         model = _model()
     r = requests.post(
         _base() + "/chat/completions",
-        headers=_headers(),
+        headers=_headers(api_key),
         json={
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
@@ -114,7 +119,7 @@ def chat(prompt, model=None, max_tokens=512):
     return content
 
 
-def draft_script(topic, model=None):
+def draft_script(topic, model=None, api_key=None):
     """First script draft via Muse Spark. Returns raw assistant text."""
     return chat(
         "Write a 5-line faceless video script outline for this topic. "
@@ -122,6 +127,7 @@ def draft_script(topic, model=None):
         "Topic: " + topic,
         model=model or SPARK_MODEL,
         max_tokens=SCRIPT_DRAFT_TOKENS,
+        api_key=api_key,
     )
 
 
@@ -132,7 +138,7 @@ REVISE_BRIEF = (
 )
 
 
-def revise_script(draft, topic, model=None):
+def revise_script(draft, topic, model=None, api_key=None):
     """Muse Wonder critiques the Spark draft and returns the final
     5-line script. Returns raw assistant text."""
     return chat(
@@ -144,6 +150,7 @@ def revise_script(draft, topic, model=None):
         + REVISE_BRIEF + " Final script only.",
         model=model or WONDER_MODEL,
         max_tokens=SCRIPT_REVISE_TOKENS,
+        api_key=api_key,
     )
 
 
@@ -154,7 +161,7 @@ SPARK_CRITIQUE_CRITERIA = (
 
 
 def critique_scenes(topic, audience, target_duration_s, scenes,
-                    model=None):
+                    model=None, api_key=None):
     """Muse Spark critiques structured scenes. Returns raw text.
 
     The prompt demands exactly one JSON list of
@@ -188,11 +195,13 @@ def critique_scenes(topic, audience, target_duration_s, scenes,
            SPARK_CRITIQUE_CRITERIA),
         model=model or SPARK_MODEL,
         max_tokens=SCRIPT_REVISE_TOKENS,
+        api_key=api_key,
     )
 
 
 def repair_critique(previous_bad, problem, topic, audience,
-                    target_duration_s, scene_ids, model=None):
+                    target_duration_s, scene_ids, model=None,
+                    api_key=None):
     """One strict re-ask after a rejected Spark critique.
 
     Same Muse Spark model only (Meta-only rule): quotes the exact
@@ -212,11 +221,12 @@ def repair_critique(previous_bad, problem, topic, audience,
            SPARK_CRITIQUE_CRITERIA),
         model=model or SPARK_MODEL,
         max_tokens=SCRIPT_REVISE_TOKENS,
+        api_key=api_key,
     )
 
 
 def revise_scene(topic, audience, target_duration_s, narration,
-                 visual_prompt, reasons, model=None):
+                 visual_prompt, reasons, model=None, api_key=None):
     """Muse Spark revises ONE flagged scene. Returns raw text.
 
     The prompt carries the brief plus the exact flagged criteria for
@@ -241,10 +251,11 @@ def revise_scene(topic, audience, target_duration_s, narration,
            visual_prompt, criteria),
         model=model or SPARK_MODEL,
         max_tokens=SCRIPT_REVISE_TOKENS,
+        api_key=api_key,
     )
 
 
-def revise_with_note(draft, topic, model=None):
+def revise_with_note(draft, topic, model=None, api_key=None):
     """Wonder revise that also returns a one-sentence change note.
 
     Asks Wonder for the final 5-line script followed by a trailing
@@ -263,6 +274,7 @@ def revise_with_note(draft, topic, model=None):
         "changed>\".",
         model=model or WONDER_MODEL,
         max_tokens=SCRIPT_REVISE_TOKENS,
+        api_key=api_key,
     )
     note = ""
     kept = []
