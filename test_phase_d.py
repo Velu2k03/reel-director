@@ -32,6 +32,7 @@ Run: python test_phase_d.py
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -524,11 +525,19 @@ def check_secrets_safety():
     for entry in (".env", "videos/", "*.mp4", "test-render-out-9x16/",
                   "test-render-out-16x9/"):
         assert entry in ignored, (entry, ignored)
-    assert not os.path.exists(os.path.join(here, ".env")), \
-        "a real .env file is present in the repo root"
+    # A local .env is supported configuration; it must stay outside Git.
+    tracked_env = subprocess.run(
+        ["git", "ls-files", "--", ".env"], cwd=here,
+        capture_output=True, text=True, check=True).stdout.strip()
+    assert not tracked_env, \
+        "the local .env file must never be tracked by Git"
     with open(os.path.join(here, "ui", "index.html"),
               encoding="utf-8") as f:
         frontend = f.read()
+    if 'src="/scenes/studio/studio.js"' in frontend:
+        with open(os.path.join(here, "ui", "scenes", "studio", "studio.js"),
+                  encoding="utf-8") as f:
+            frontend += "\n" + f.read()
     assert "META_API_KEY" not in frontend, \
         "frontend code references the key variable"
     assert "localStorage.setItem" in frontend, \

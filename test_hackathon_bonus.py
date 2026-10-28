@@ -229,6 +229,10 @@ def check_director_panel_shows_real_decisions():
     with open(os.path.join(HERE, "ui", "index.html"),
               encoding="utf-8") as fh:
         html = fh.read()
+    if 'src="/scenes/studio/studio.js"' in html:
+        with open(os.path.join(HERE, "ui", "scenes", "studio", "studio.js"),
+                  encoding="utf-8") as fh:
+            html += "\n" + fh.read()
     for marker in ("Approval gate", "Script revise note",
                    "QC passed", "QC failed", "qc.decisions",
                    "revision_note"):

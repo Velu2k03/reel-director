@@ -211,6 +211,10 @@ def check_ui_has_pickers_no_caption_claims():
     with open(os.path.join(HERE, "ui", "index.html"),
               encoding="utf-8") as f:
         html = f.read()
+    if 'src="/scenes/studio/studio.js"' in html:
+        with open(os.path.join(HERE, "ui", "scenes", "studio", "studio.js"),
+                  encoding="utf-8") as f:
+            html += "\n" + f.read()
     assert 'id="styleGrid"' in html, "style picker missing"
     assert 'id="colorGrid"' in html, "color picker missing"
     assert 'id="styleInput"' not in html, "long style textarea remains"
