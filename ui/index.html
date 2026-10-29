@@ -3,36 +3,44 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#172435">
+<meta name="theme-color" content="#ece5d3">
 <title>ReelDirector — Your creative studio</title>
 <link rel="preload" href="/scenes/studio/manrope-variable.ttf" as="font" type="font/ttf" crossorigin>
 <link href="/fonts/material-symbols.css" rel="stylesheet">
+<link rel="icon" href="/scenes/studio/logo.jpg">
 <link href="/scenes/studio/studio.css" rel="stylesheet">
 <script src="/scenes/studio/studio.js" defer></script>
 </head>
 <body data-job-state="empty">
 <a class="skip-link" href="#main">Skip to editor</a>
 <header class="topbar"><div class="topbar-inner">
- <a class="brand" href="#main" aria-label="ReelDirector editor"><span class="brand-mark" aria-hidden="true"><span class="material-symbols-outlined">movie_edit</span></span><span class="wordmark">ReelDirector</span></a>
+ <a class="brand" href="#main" aria-label="ReelDirector editor"><img class="brand-logo" src="/scenes/studio/logo.jpg" alt="ReelDirector logo"><span class="wordmark">ReelDirector</span></a>
  <div class="project-identity"><span class="project-divider" aria-hidden="true">/</span><h1 id="projectTitle" aria-label="Untitled production"></h1><span class="project-type">Video project</span></div>
  <div class="topbar-status"><div class="status-pill offline" id="statusPill" role="status" aria-live="polite"><span class="dot" aria-hidden="true"></span><span id="statusText">Checking...</span></div><a class="export-btn" id="exportVideo" href="#" download hidden><span class="material-symbols-outlined" aria-hidden="true">file_download</span>Download MP4</a></div>
 </div></header>
+<nav class="steps-bar" aria-label="How it works"><ol>
+<li class="step-sticker"><span class="step-no">1</span><span><strong>Tell your idea</strong><span>Type a topic</span></span></li>
+<li class="step-sticker"><span class="step-no">2</span><span><strong>Check your story</strong><span>Edit, then approve</span></span></li>
+<li class="step-sticker"><span class="step-no">3</span><span><strong>Get your video</strong><span>Download the MP4</span></span></li>
+</ol><p class="steps-note">Nothing is made until you press Approve.</p></nav>
 <main class="wrap" id="main">
 <p class="sr-only" aria-live="polite" id="stateAnnouncer"></p>
 <div class="workspace" id="workspace" data-job-state="empty" data-preview-aspect="9:16">
- <aside class="left-dock" aria-label="Project controls"><div class="dock-tabs" role="tablist" aria-label="Project controls"><button class="editor-tab active" id="briefTab" role="tab" aria-selected="true" aria-controls="briefPane" data-editor-tab="brief" type="button">Brief</button><button class="editor-tab" id="scriptTab" role="tab" aria-selected="false" aria-controls="scriptPane" data-editor-tab="script" type="button" tabindex="-1">Script</button></div>
+ <aside class="left-dock" aria-label="Project controls"><div class="dock-tabs" role="tablist" aria-label="Project controls"><button class="editor-tab active" id="briefTab" role="tab" aria-selected="true" aria-controls="briefPane" data-editor-tab="brief" type="button">1 · Idea</button><button class="editor-tab" id="scriptTab" role="tab" aria-selected="false" aria-controls="scriptPane" data-editor-tab="script" type="button" tabindex="-1">2 · Story</button></div>
 <section class="panel brief-col" id="briefPane" role="tabpanel" aria-labelledby="briefTab">
-      <div class="panel-heading"><h2 id="brief-title">Production brief</h2></div>
+      <div class="panel-heading"><h2 id="brief-title">1 · Tell your idea</h2></div>
 
       <form id="planForm">
-        <div class="field"><label for="topicInput">Topic</label><textarea id="topicInput" name="topic" rows="3" placeholder="How rivers carve mountains into valleys…" autocomplete="off"></textarea></div>
-        <div class="field"><label for="audienceInput">Audience</label><input type="text" id="audienceInput" name="audience" placeholder="Curious middle-school students…" autocomplete="off"></div>
-        <div class="field length-field"><label for="durationInput">Target length</label><div class="input-unit"><input type="number" id="durationInput" name="duration" min="5" max="300" step="1" inputmode="numeric" placeholder="Auto" aria-label="Target length in seconds, optional" title="Optional"><span aria-hidden="true">seconds</span></div></div>
+        <div class="field"><label for="topicInput">What is your video about?</label><textarea id="topicInput" name="topic" rows="3" placeholder="How rivers carve mountains into valleys…" autocomplete="off"></textarea></div>
+        <details class="more-options"><summary><span class="material-symbols-outlined" aria-hidden="true">tune</span>More options <span class="optional">optional</span></summary>
+        <div class="field"><label for="audienceInput">Who is it for?</label><input type="text" id="audienceInput" name="audience" placeholder="Curious middle-school students…" autocomplete="off"></div>
+        <div class="field length-field"><label for="durationInput">How long?</label><div class="input-unit"><input type="number" id="durationInput" name="duration" min="5" max="300" step="1" inputmode="numeric" placeholder="Auto" aria-label="Target length in seconds, optional" title="Optional"><span aria-hidden="true">seconds</span></div></div>
+        </details>
         <fieldset class="field format-field"><legend id="aspectLabel">Format</legend><div class="aspect-options">
           <label class="aspect-option" title="Vertical 9:16, best for Reels"><input type="radio" name="aspect" value="9:16" checked><span class="format-glyph portrait" aria-hidden="true"></span><span><strong>Vertical</strong><span>9:16</span></span><span class="radio-check" aria-hidden="true"></span></label>
           <label class="aspect-option" title="Wide 16:9 video"><input type="radio" name="aspect" value="16:9"><span class="format-glyph landscape" aria-hidden="true"></span><span><strong>Wide</strong><span>16:9</span></span><span class="radio-check" aria-hidden="true"></span></label>
         </div></fieldset>
-        <details class="style-settings"><summary><span class="material-symbols-outlined" aria-hidden="true">palette</span>Visual direction<span class="look-summary" id="lookSummary">Flat vector, Facebook blue</span><span class="material-symbols-outlined disclosure" aria-hidden="true">expand_more</span></summary>
+        <details class="style-settings"><summary><span class="material-symbols-outlined" aria-hidden="true">palette</span><span class="look-label">Visual direction</span><span class="look-summary" id="lookSummary">Flat vector, Facebook blue</span><span class="material-symbols-outlined disclosure" aria-hidden="true">expand_more</span></summary>
           <div class="field"><span class="field-label" id="styleLabel">Visual style</span><div class="pick-grid" id="styleGrid" role="group" aria-labelledby="styleLabel"></div></div>
           <div class="field"><span class="field-label" id="colorLabel">Color theme</span><div class="swatch-grid" id="colorGrid" role="group" aria-labelledby="colorLabel"></div></div>
           <div class="field"><label for="customInput">Custom touch <span class="optional">optional</span></label><input type="text" id="customInput" maxlength="120" placeholder="e.g. tiny stars in the sky" autocomplete="off"><p class="hint">One consistent look across your scenes.</p></div>
@@ -45,7 +53,7 @@
       <div class="brief-footnote"><span class="material-symbols-outlined" aria-hidden="true">tune</span><span>You can edit every line before producing.</span></div>
     </section>
 <section class="panel plan-panel" id="scriptPane" role="tabpanel" aria-labelledby="scriptTab" hidden>
-        <div class="panel-heading"><h2 id="plan-title">Scene plan</h2><span id="planCount" class="count-label"></span></div>
+        <div class="panel-heading"><h2 id="plan-title">2 · Check your story</h2><span id="planCount" class="count-label"></span></div>
         <div class="plan-empty-wrap"><span class="material-symbols-outlined" aria-hidden="true">notes</span><p class="plan-empty" id="planEmpty">Plan your scenes to review the narration and visuals before production.</p></div>
         <div class="approval-note" id="approvalNote" hidden></div>
         <ol class="plan-list" id="planList" hidden></ol>
@@ -59,7 +67,7 @@
       </section>
  </aside>
 <section class="panel preview-panel" aria-labelledby="preview-title">
-        <div class="panel-heading"><h2 id="preview-title">Preview</h2><span class="preview-format" id="previewFormat">Vertical 9:16</span></div>
+        <div class="panel-heading"><h2 id="preview-title">3 · Your video</h2><span class="preview-format" id="previewFormat">Vertical 9:16</span></div>
         <div class="preview-stage">
           <div class="preview-frame" id="previewFrame" hidden><video id="outputVideo" controls playsinline preload="metadata" aria-label="Produced video preview"></video></div>
           <div class="preview-state" id="previewState" data-state="empty">
@@ -68,7 +76,7 @@
               <div class="thinking-copy"><p class="thinking-title"><span id="thinkingWord">Planning scenes</span><span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span></p><p class="thinking-detail" id="thinkingDetail"></p><p class="thinking-note" id="thinkingNote"></p></div>
               <div class="thinking-context" id="thinkingContext"></div>
             </div>
-            <div class="preview-message"><span class="material-symbols-outlined" aria-hidden="true" id="previewIcon">movie</span><div id="previewText"></div></div>
+            <div class="preview-message"><span class="material-symbols-outlined" aria-hidden="true" id="previewIcon">movie</span><div id="previewText"><strong>Your video will appear here.</strong><br>Type a topic, plan your scenes, then approve.</div></div>
           </div>
         </div>
         <p class="preview-meta" id="previewMeta" hidden></p>
@@ -76,7 +84,7 @@
       </section>
  <aside class="right-dock" aria-label="Inspector"><div class="dock-tabs" role="tablist" aria-label="Inspector"><button class="editor-tab active" id="directorTab" role="tab" aria-selected="true" aria-controls="directorPane" data-inspector-tab="director" type="button">Director</button><button class="editor-tab" id="sceneTab" role="tab" aria-selected="false" aria-controls="scenePane" data-inspector-tab="scene" type="button" tabindex="-1" disabled>Scene</button><button class="editor-tab" id="detailsTab" role="tab" aria-selected="false" aria-controls="production-details" data-inspector-tab="details" type="button" tabindex="-1">Details</button></div>
 <aside class="panel director-col" id="directorPane" role="tabpanel" aria-labelledby="directorTab">
-      <div class="panel-heading"><h2 id="director-title"><span class="director-spark material-symbols-outlined" aria-hidden="true">auto_awesome</span>Director review</h2></div>
+      <div class="panel-heading"><h2 id="director-title"><span class="director-spark material-symbols-outlined" aria-hidden="true">auto_awesome</span>Director notes</h2></div>
       <p class="director-empty" id="directorEmpty"></p>
       <div class="review-guide"><p class="guide-title">What the director looks for</p><ul><li><span class="material-symbols-outlined" aria-hidden="true">bolt</span><div><strong>An opening that lands</strong><span>A clear hook for your audience.</span></div></li><li><span class="material-symbols-outlined" aria-hidden="true">view_carousel</span><div><strong>Scenes that connect</strong><span>Relevant visuals, less repetition.</span></div></li><li><span class="material-symbols-outlined" aria-hidden="true">fact_check</span><div><strong>A finish you can check</strong><span>Sound, duration, and dimensions.</span></div></li></ul></div>
       <ul class="decision-list" id="decisionList"></ul>
@@ -86,7 +94,7 @@
 <section class="panel tech-panel" id="production-details" role="tabpanel" aria-labelledby="detailsTab" hidden><h2>Production details</h2><p class="hint" id="connLine">Checking connection...</p><h3>Activity</h3><div class="log-console" id="jobLog" aria-label="Job log"></div><pre class="full-report" id="qcFull" hidden></pre></section>
  </aside>
 <section class="panel board-panel" id="storyboard" aria-labelledby="storyboard-title">
-      <div class="panel-heading"><div class="board-heading"><h2 id="storyboard-title">Scene sequence</h2><span id="boardCount" class="count-label"></span></div><span class="section-note">Select a scene to inspect or edit</span></div>
+      <div class="panel-heading"><div class="board-heading"><h2 id="storyboard-title">Your scenes</h2><span id="boardCount" class="count-label"></span></div><span class="section-note">Select a scene to inspect or edit</span></div>
       <div class="board-idle"><p class="board-empty" id="boardEmpty"></p></div>
       <div class="storyboard" id="boardGrid"></div>
     </section>

@@ -54,7 +54,7 @@ Demo: the 3-minute video must OPEN with one line stating pre-existing vs event-b
 - The first run downloads ffmpeg binaries (static-ffmpeg, ffmpeg AND ffprobe) plus the torch/transformers voice packages and MMS weights from the internet.
 - MMS voice (facebook/mms-tts-eng) is CC-BY-NC-4.0: non-commercial use only.
 - Muse Wonder is in preview and may change.
-- No license file yet, so reuse terms are not set.
+- License: MIT (see LICENSE). Third-party assets keep their own licences below.
 
 ## Third-party licenses
 

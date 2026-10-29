@@ -427,3 +427,94 @@ body[data-job-state="empty"] .project-divider { display: none; }
   #thinkingWord { color: #e8eeff; background: none; }
   .primary-btn[aria-busy="true"]::after { display: none; }
 }
+
+/* === Scrapbook + neumorphism simple front (2026-10-29) ===
+   Paper background, soft neumorphic cards, sticker steps. No JS change:
+   the full studio returns automatically once a job leaves the empty state. */
+:root {
+  --bg: #ece5d3; --card: #ece5d3; --ink: #1e2a3a; --text: #2b3442;
+  --muted: #66707e; --blue: #1877f2; --blue-dark: #0d5fd1;
+  --pale-blue: #e3ecfb; --border: #ddd2ba; --paper: #f7f1de;
+  --coral: #ff7a59;
+  --shadow-out: 7px 7px 14px #c9bfa3, -7px -7px 14px #fffdf4;
+  --shadow-in: inset 4px 4px 8px #cfc5a8, inset -4px -4px 8px #fffdf4;
+}
+body { background: var(--bg); }
+.topbar { background: var(--paper); border-bottom: 2px dashed #d8cba6; }
+.brand-mark { border-radius: 50%; border: 3px solid #fffdf4; box-shadow: 2px 2px 6px #c9bfa3; }
+.steps-bar { display: flex; align-items: center; gap: 18px; height: 92px; padding: 10px 18px; background: var(--bg); overflow-x: auto; box-sizing: border-box; }
+.steps-bar ol { display: flex; gap: 14px; list-style: none; margin: 0; padding: 4px; }
+.step-sticker { display: flex; align-items: center; gap: 10px; padding: 8px 16px 8px 8px; background: #fffdf4; border-radius: 16px; box-shadow: 4px 4px 10px #c9bfa3, -2px -2px 6px #fffdf4; white-space: nowrap; }
+.step-sticker:nth-child(1) { transform: rotate(-2deg); }
+.step-sticker:nth-child(2) { transform: rotate(1.5deg); }
+.step-sticker:nth-child(3) { transform: rotate(-1deg); }
+.step-no { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--blue); color: #fff; font-weight: 800; font-size: 14px; flex-shrink: 0; }
+.step-sticker:nth-child(2) .step-no { background: #e86a33; }
+.step-sticker:nth-child(3) .step-no { background: #19715c; }
+.step-sticker strong { display: block; font-size: 13px; color: var(--ink); }
+.step-sticker span span { display: block; font-size: 11px; color: var(--muted); }
+.steps-note { margin: 0 0 0 auto; font-family: "Segoe Print", "Comic Sans MS", cursive; font-size: 14px; color: #5a6472; white-space: nowrap; }
+.wrap { height: calc(100dvh - 52px - 92px); }
+.workspace[data-job-state="empty"] { grid-template-columns: 360px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 28px; grid-template-areas: "brief center" "status status"; }
+.workspace[data-job-state="empty"] .right-dock, .workspace[data-job-state="empty"] .board-panel, .workspace[data-job-state="empty"] .production-strip, .workspace[data-job-state="empty"] #scriptTab { display: none !important; }
+.left-dock, .right-dock { background: var(--bg); }
+.left-dock > .panel, .right-dock > .panel { margin: 12px; border-radius: 20px; background: var(--bg); box-shadow: var(--shadow-out); }
+.dock-tabs { background: transparent; border-bottom: 0; }
+.preview-panel { background: var(--bg); padding: 12px; gap: 12px; }
+.preview-panel > .panel-heading { border-radius: 16px; background: var(--paper); box-shadow: var(--shadow-out); padding: 0 16px; }
+.preview-stage { border-radius: 18px; box-shadow: var(--shadow-out); }
+.production-strip { border-radius: 16px; background: var(--paper); box-shadow: var(--shadow-out); border: 0; }
+.board-panel { background: var(--paper); border-radius: 16px; margin: 12px; box-shadow: var(--shadow-out); }
+.editor-statusbar { background: var(--paper); }
+input[type="text"], input[type="number"], input[type="password"], textarea { background: var(--bg); border: 0; border-radius: 12px; box-shadow: var(--shadow-in); }
+.primary-btn { border-radius: 14px; background: var(--blue); box-shadow: 4px 4px 10px #c9bfa3, -4px -4px 10px #fffdf4; }
+.primary-btn:active:not(:disabled) { box-shadow: var(--shadow-in); }
+.quiet-btn, .aspect-option, .pick-card, .swatch-card { background: var(--bg); border: 0; border-radius: 14px; box-shadow: var(--shadow-out); }
+.aspect-option:has(input:checked), .pick-card[aria-pressed="true"], .swatch-card[aria-pressed="true"] { box-shadow: var(--shadow-in); border: 2px solid var(--blue); background: var(--pale-blue); }
+.more-options { margin: 0 0 17px; border-top: 1px dashed #d8cba6; padding-top: 14px; }
+.more-options summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 550; color: #586577; }
+.more-options summary::-webkit-details-marker { display: none; }
+.more-options .field { margin: 14px 0 0; }
+.preview-frame { border: 10px solid #fffdf4; border-bottom-width: 30px; border-radius: 4px; box-shadow: 8px 8px 16px #00000055; }
+@media (min-width: 761px) {
+  .preview-stage::before { content: ""; position: absolute; top: 14px; left: 50%; width: 110px; height: 26px; margin-left: -55px; background: rgba(255, 214, 120, 0.75); transform: rotate(-3deg); z-index: 3; pointer-events: none; box-shadow: 1px 1px 3px #00000022; }
+}
+@media (max-width: 760px) {
+  .wrap { height: auto; }
+  .steps-bar { height: auto; flex-wrap: wrap; }
+  .steps-note { display: none; }
+  .left-dock > .panel, .right-dock > .panel { margin: 8px; }
+}
+
+/* Flow logo mark (2026-10-29): sticker play button, no text. */
+.brand-logo { width: 30px; height: 30px; border-radius: 8px; border: 2px solid #fffdf4; box-shadow: 2px 2px 5px #c9bfa3; object-fit: cover; flex-shrink: 0; }
+
+/* === Clean and aligned, no shaking (2026-10-29, user fix) ===
+   Straight stickers and tape, no rotating, scaling, shimmering or
+   pulsing motion anywhere. Words stay still so they can be read.
+   The brief column is 320px in every state, so the left panel
+   does not resize when the right dock and scene strip appear. */
+.step-sticker:nth-child(1), .step-sticker:nth-child(2), .step-sticker:nth-child(3) { transform: none; }
+.step-sticker { height: 56px; box-sizing: border-box; align-items: center; }
+.steps-bar { align-items: center; }
+@media (min-width: 761px) {
+  .preview-stage::before { transform: none; }
+}
+.workspace[data-job-state="empty"] { grid-template-columns: 320px minmax(0, 1fr); }
+.thinking-panel, .preview-state[data-state="plan"] .preview-message, .workspace[data-job-state="done"] .preview-frame { animation: none; }
+.thinking-mark::before, .thinking-orbit, .thinking-core, .thinking-mark > i { animation: none; }
+.thinking-orbit, .thinking-orbit::before, .thinking-orbit::after { transform: none; }
+#thinkingWord, #thinkingWord.thinking-word-enter { animation: none; background: none; color: #e8eeff; -webkit-text-fill-color: #e8eeff; }
+.thinking-dots i { animation: none; opacity: 1; transform: none; }
+.primary-btn:active:not(:disabled) { transform: none; }
+.primary-btn[aria-busy="true"]::after { display: none; }
+.progress li[data-state="working"] .p-dot, .workspace[data-job-state="planning"] .status-left .dot, .workspace[data-job-state="producing"] .status-left .dot { animation: none; }
+.current-step { font-size: 13px; font-weight: 650; color: var(--ink); }
+#thinkingWord, .thinking-title { letter-spacing: 0; }
+
+/* No washi tape: it sat in the middle of the preview for no reason. */
+.preview-stage::before { display: none !important; content: none !important; }
+/* Keep the Visual direction row on one line in the 320px panel. */
+.style-settings summary { white-space: nowrap; }
+.look-label { flex-shrink: 0; }
+.look-summary { min-width: 0; }
