@@ -10,11 +10,11 @@
 <link href="/scenes/studio/studio.css" rel="stylesheet">
 <script src="/scenes/studio/studio.js" defer></script>
 </head>
-<body>
+<body data-job-state="empty">
 <a class="skip-link" href="#main">Skip to editor</a>
 <header class="topbar"><div class="topbar-inner">
  <a class="brand" href="#main" aria-label="ReelDirector editor"><span class="brand-mark" aria-hidden="true"><span class="material-symbols-outlined">movie_edit</span></span><span class="wordmark">ReelDirector</span></a>
- <div class="project-identity"><span class="project-divider" aria-hidden="true">/</span><h1 id="projectTitle">Untitled production</h1><span class="project-type">Video project</span></div>
+ <div class="project-identity"><span class="project-divider" aria-hidden="true">/</span><h1 id="projectTitle" aria-label="Untitled production"></h1><span class="project-type">Video project</span></div>
  <div class="topbar-status"><div class="status-pill offline" id="statusPill" role="status" aria-live="polite"><span class="dot" aria-hidden="true"></span><span id="statusText">Checking...</span></div><a class="export-btn" id="exportVideo" href="#" download hidden><span class="material-symbols-outlined" aria-hidden="true">file_download</span>Download MP4</a></div>
 </div></header>
 <main class="wrap" id="main">
@@ -27,19 +27,19 @@
       <form id="planForm">
         <div class="field"><label for="topicInput">Topic</label><textarea id="topicInput" name="topic" rows="3" placeholder="How rivers carve mountains into valleys…" autocomplete="off"></textarea></div>
         <div class="field"><label for="audienceInput">Audience</label><input type="text" id="audienceInput" name="audience" placeholder="Curious middle-school students…" autocomplete="off"></div>
-        <div class="field length-field"><label for="durationInput">Target length <span class="optional">optional</span></label><div class="input-unit"><input type="number" id="durationInput" name="duration" min="5" max="300" step="1" inputmode="numeric" placeholder="Auto"><span aria-hidden="true">seconds</span></div></div>
+        <div class="field length-field"><label for="durationInput">Target length</label><div class="input-unit"><input type="number" id="durationInput" name="duration" min="5" max="300" step="1" inputmode="numeric" placeholder="Auto" aria-label="Target length in seconds, optional" title="Optional"><span aria-hidden="true">seconds</span></div></div>
         <fieldset class="field format-field"><legend id="aspectLabel">Format</legend><div class="aspect-options">
-          <label class="aspect-option"><input type="radio" name="aspect" value="9:16" checked><span class="format-glyph portrait" aria-hidden="true"></span><span><strong>Vertical</strong><span>9:16 · Reels</span></span><span class="radio-check" aria-hidden="true"></span></label>
-          <label class="aspect-option"><input type="radio" name="aspect" value="16:9"><span class="format-glyph landscape" aria-hidden="true"></span><span><strong>Wide</strong><span>16:9 · Video</span></span><span class="radio-check" aria-hidden="true"></span></label>
+          <label class="aspect-option" title="Vertical 9:16, best for Reels"><input type="radio" name="aspect" value="9:16" checked><span class="format-glyph portrait" aria-hidden="true"></span><span><strong>Vertical</strong><span>9:16</span></span><span class="radio-check" aria-hidden="true"></span></label>
+          <label class="aspect-option" title="Wide 16:9 video"><input type="radio" name="aspect" value="16:9"><span class="format-glyph landscape" aria-hidden="true"></span><span><strong>Wide</strong><span>16:9</span></span><span class="radio-check" aria-hidden="true"></span></label>
         </div></fieldset>
-        <details class="style-settings" open><summary><span class="material-symbols-outlined" aria-hidden="true">palette</span>Visual direction<span class="material-symbols-outlined disclosure" aria-hidden="true">expand_more</span></summary>
+        <details class="style-settings"><summary><span class="material-symbols-outlined" aria-hidden="true">palette</span>Visual direction<span class="look-summary" id="lookSummary">Flat vector, Facebook blue</span><span class="material-symbols-outlined disclosure" aria-hidden="true">expand_more</span></summary>
           <div class="field"><span class="field-label" id="styleLabel">Visual style</span><div class="pick-grid" id="styleGrid" role="group" aria-labelledby="styleLabel"></div></div>
           <div class="field"><span class="field-label" id="colorLabel">Color theme</span><div class="swatch-grid" id="colorGrid" role="group" aria-labelledby="colorLabel"></div></div>
           <div class="field"><label for="customInput">Custom touch <span class="optional">optional</span></label><input type="text" id="customInput" maxlength="120" placeholder="e.g. tiny stars in the sky" autocomplete="off"><p class="hint">One consistent look across your scenes.</p></div>
         </details>
         <button class="primary-btn" id="planBtn" type="submit"><span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span><span id="planBtnText">Plan scenes</span></button>
-        <button type="button" class="quiet-btn sample-btn" id="sampleBtn"><span class="material-symbols-outlined" aria-hidden="true">lightbulb</span>Try a sample topic</button>
-        <div class="key-row" id="keyRow" hidden><label for="keyInput">Meta API key</label><div class="key-input-row"><input type="password" id="keyInput" name="api-key" placeholder="Paste your API key…" autocomplete="off" spellcheck="false"><button id="keyBtn" type="button">Save key</button></div><p class="hint">Used for this server session. Never sent to the browser again.</p></div>
+        <button type="button" class="quiet-btn sample-btn" id="sampleBtn" aria-label="Try a sample topic"><span class="material-symbols-outlined" aria-hidden="true">lightbulb</span>Sample topic</button>
+        <div class="key-row" id="keyRow" hidden><label for="keyInput">Meta API key</label><div class="key-input-row"><input type="password" id="keyInput" name="api-key" placeholder="Paste your API key…" autocomplete="off" spellcheck="false"><button id="keyBtn" type="button" aria-label="Save key">Save</button></div><p class="hint" title="Used for this server session. Never sent to the browser again.">Session only; never sent back.</p></div>
         <p class="error-line" id="errorLine" role="alert" hidden></p><p class="fix-line" id="fixLine" hidden></p>
       </form>
       <div class="brief-footnote"><span class="material-symbols-outlined" aria-hidden="true">tune</span><span>You can edit every line before producing.</span></div>
@@ -65,22 +65,19 @@
           <div class="preview-state" id="previewState" data-state="empty">
             <div class="thinking-panel" id="thinkingPanel" hidden>
               <div class="thinking-mark" aria-hidden="true"><span class="thinking-orbit"></span><span class="thinking-core"><span class="material-symbols-outlined">auto_awesome</span></span><i></i><i></i><i></i></div>
-              <div class="thinking-copy"><p class="thinking-title"><span id="thinkingWord">Thinking</span><span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span></p><p class="thinking-detail" id="thinkingDetail"></p><p class="thinking-note" id="thinkingNote"></p></div>
+              <div class="thinking-copy"><p class="thinking-title"><span id="thinkingWord">Planning scenes</span><span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span></p><p class="thinking-detail" id="thinkingDetail"></p><p class="thinking-note" id="thinkingNote"></p></div>
               <div class="thinking-context" id="thinkingContext"></div>
             </div>
-            <img class="concept-cover" src="/scenes/studio/studio-cover.png" alt="" width="1536" height="1024" fetchpriority="high">
-            <span class="concept-label">Concept artwork</span>
-            <div class="preview-message"><span class="material-symbols-outlined" aria-hidden="true" id="previewIcon">movie</span><div id="previewText"><strong>Video preview</strong><span>Plan your script, then produce your video.</span></div></div>
-            <span class="concept-footnote">Concept artwork for inspiration</span>
+            <div class="preview-message"><span class="material-symbols-outlined" aria-hidden="true" id="previewIcon">movie</span><div id="previewText"></div></div>
           </div>
         </div>
         <p class="preview-meta" id="previewMeta" hidden></p>
-        <div class="production-strip"><div class="progress-heading"><span class="progress-title">Production</span><span id="previewDuration">Auto length</span></div><ol class="progress" id="progressList" aria-label="Production progress"></ol><p class="current-step" id="currentStep" aria-live="polite">Your studio is ready.</p></div>
+        <div class="production-strip"><div class="progress-heading"><span class="progress-title">Production</span><span id="previewDuration">Auto length</span></div><ol class="progress" id="progressList" aria-label="Production progress"></ol><p class="current-step" id="currentStep" aria-live="polite"></p></div>
       </section>
  <aside class="right-dock" aria-label="Inspector"><div class="dock-tabs" role="tablist" aria-label="Inspector"><button class="editor-tab active" id="directorTab" role="tab" aria-selected="true" aria-controls="directorPane" data-inspector-tab="director" type="button">Director</button><button class="editor-tab" id="sceneTab" role="tab" aria-selected="false" aria-controls="scenePane" data-inspector-tab="scene" type="button" tabindex="-1" disabled>Scene</button><button class="editor-tab" id="detailsTab" role="tab" aria-selected="false" aria-controls="production-details" data-inspector-tab="details" type="button" tabindex="-1">Details</button></div>
 <aside class="panel director-col" id="directorPane" role="tabpanel" aria-labelledby="directorTab">
       <div class="panel-heading"><h2 id="director-title"><span class="director-spark material-symbols-outlined" aria-hidden="true">auto_awesome</span>Director review</h2></div>
-      <p class="director-empty" id="directorEmpty">Plan your scenes to see the director’s review, then approve production.</p>
+      <p class="director-empty" id="directorEmpty"></p>
       <div class="review-guide"><p class="guide-title">What the director looks for</p><ul><li><span class="material-symbols-outlined" aria-hidden="true">bolt</span><div><strong>An opening that lands</strong><span>A clear hook for your audience.</span></div></li><li><span class="material-symbols-outlined" aria-hidden="true">view_carousel</span><div><strong>Scenes that connect</strong><span>Relevant visuals, less repetition.</span></div></li><li><span class="material-symbols-outlined" aria-hidden="true">fact_check</span><div><strong>A finish you can check</strong><span>Sound, duration, and dimensions.</span></div></li></ul></div>
       <ul class="decision-list" id="decisionList"></ul>
 
@@ -90,7 +87,7 @@
  </aside>
 <section class="panel board-panel" id="storyboard" aria-labelledby="storyboard-title">
       <div class="panel-heading"><div class="board-heading"><h2 id="storyboard-title">Scene sequence</h2><span id="boardCount" class="count-label"></span></div><span class="section-note">Select a scene to inspect or edit</span></div>
-      <div class="board-idle"><p class="board-empty" id="boardEmpty">Your scene sequence will appear after you plan the script.</p></div>
+      <div class="board-idle"><p class="board-empty" id="boardEmpty"></p></div>
       <div class="storyboard" id="boardGrid"></div>
     </section>
  <div class="editor-statusbar"><span class="status-left"><span class="dot" aria-hidden="true"></span><span id="productionState">Ready to plan</span></span><span class="status-center">Meta AI production</span><span class="status-right"><span class="material-symbols-outlined" aria-hidden="true">computer</span>Local project</span></div>

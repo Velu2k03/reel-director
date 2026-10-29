@@ -197,21 +197,48 @@ _voice = None  # lazy (tokenizer, model) cache
 TOOLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
 
 
-def _tool(name):
-    """Resolve a media binary: local tools/ dir first, then PATH.
+def _static_bins():
+    """(ffmpeg, ffprobe) from the static-ffmpeg package, downloading
+    the platform executables once on first use. Raises the real
+    error when the package is missing or the download fails."""
+    from static_ffmpeg.run import (
+        get_or_fetch_platform_executables_else_raise as fetch)
+    return fetch()
+
+
+def _tool_with_source(name):
+    """(path, source) for a media binary: local tools/ dir, PATH,
+    then the static-ffmpeg download (fetched once on first use).
 
     setup.py may place a static build in tools/ (gitignored); render
     and setup share this lookup so both agree on what "installed"
-    means. Falls back to the bare PATH name so a missing binary
-    still raises its natural error.
+    means. source is "tools", "path", "static-ffmpeg", or
+    "missing". A missing binary falls back to the bare PATH name so
+    it still raises its natural error.
     """
     suffix = ".exe" if os.name == "nt" else ""
     for cand in (os.path.join(TOOLS_DIR, name + suffix),
                  os.path.join(TOOLS_DIR, "bin", name + suffix)):
         if os.path.isfile(cand):
-            return cand
+            return cand, "tools"
     found = shutil.which(name)
-    return found or name
+    if found:
+        return found, "path"
+    if name in ("ffmpeg", "ffprobe"):
+        try:
+            ffmpeg_exe, ffprobe_exe = _static_bins()
+        except Exception:
+            pass
+        else:
+            return ((ffmpeg_exe if name == "ffmpeg" else ffprobe_exe),
+                    "static-ffmpeg")
+    return name, "missing"
+
+
+def _tool(name):
+    """Resolve a media binary: tools/ -> PATH -> static-ffmpeg."""
+    path, _source = _tool_with_source(name)
+    return path
 
 
 def _ffmpeg_bin():
@@ -385,7 +412,7 @@ def generate_images(scenes, out_dir, api_key=None, decisions=None,
         # a wide source file still never stretches.
         meta_image.generate_image(
             _meta_prompt(scene, aspect_ratio=aspect), path, api_key,
-            aspect_ratio=aspect)
+            aspect_ratio=aspect, decisions=decisions)
         if (not os.path.exists(path) or os.path.getsize(path) == 0):
             raise RuntimeError("empty image for scene %d" % i)
         return path
@@ -694,7 +721,7 @@ def sam_check(scenes, image_paths, api_key, decisions=None,
             if on_scene is not None:
                 on_scene(i, "sam", {"ok": True, "result": result})
             continue
-        regen_kwargs = {}
+        regen_kwargs = {"decisions": decisions}
         if aspect_ratio is not None:
             regen_kwargs["aspect_ratio"] = aspect_ratio
         meta_image.generate_image(
@@ -957,9 +984,12 @@ def qc_report(path, sam_results=None, backends=None, decisions=None,
 def run_pipeline(scenes, topic, out_dir, on_stage=None, api_key=None,
                  revision_note=None, on_scene=None, director_log=None,
                  aspect_ratio=None):
-    """Full render: images -> SAM check -> voice -> assemble -> QC.
+    """Full render: voice preflight, then images -> SAM check ->
+    voice -> assemble -> QC.
 
-    Returns (final_path, qc_report). The selected aspect ratio
+    The preflight loads the local MMS voice before the first paid
+    Muse Image call, so a voice failure raises before any image
+    spend. Returns (final_path, qc_report). The selected aspect ratio
     (9:16 vertical 720x1280 default, 16:9 1280x720) drives the image
     prompts, the ffmpeg frame, and QC: QC fails when the finished
     dimensions do not match the selected format. Raises on any
@@ -977,6 +1007,15 @@ def run_pipeline(scenes, topic, out_dir, on_stage=None, api_key=None,
     width, height = dims_for_aspect(aspect)
     os.makedirs(out_dir, exist_ok=True)
     decisions = []
+    # Voice preflight: load the local MMS voice BEFORE the first
+    # paid Muse Image call, so a voice failure surfaces before any
+    # image spend. Recorded in decisions as real stage detail.
+    _load_voice()
+    decisions.append({
+        "decision": ("voice preflight ok: %s loaded before the "
+                     "first paid image call" % VOICE_MODEL_ID),
+        "stage": "voice", "scene": None, "retried": False,
+    })
     director_entries = []
     unmet = []
     editorial_ok = None

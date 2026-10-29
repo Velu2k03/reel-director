@@ -6,13 +6,11 @@ Needs no API key and never asks for one.
 
 import os
 import platform
-import shutil
 import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 VENV_DIR = os.path.join(HERE, ".venv")
-TOOLS_DIR = os.path.join(HERE, "tools")
 
 
 def venv_python():
@@ -21,15 +19,33 @@ def venv_python():
     return os.path.join(VENV_DIR, "bin", "python")
 
 
-def has_ffmpeg():
-    if shutil.which("ffmpeg"):
-        return True
-    suffix = ".exe" if os.name == "nt" else ""
-    for cand in (os.path.join(TOOLS_DIR, "ffmpeg" + suffix),
-                 os.path.join(TOOLS_DIR, "bin", "ffmpeg" + suffix)):
-        if os.path.isfile(cand):
-            return True
-    return False
+def check_media(python):
+    """Trigger the one-time ffmpeg/ffprobe fetch in the venv and
+    report found/missing per binary. Returns True when both resolve
+    (tools/ dir, PATH, or the static-ffmpeg download)."""
+    code = (
+        "import os, shutil, render\n"
+        "for _n in ('ffmpeg', 'ffprobe'):\n"
+        "    _p = render._tool(_n)\n"
+        "    _ok = os.path.isfile(_p) or bool(shutil.which(_p))\n"
+        "    print('%s=%s' % (_n, 'found' if _ok else 'missing'),\n"
+        "          flush=True)\n"
+    )
+    print("Checking ffmpeg/ffprobe (platform binaries download "
+          "once on first run) ...")
+    r = subprocess.run([python, "-c", code], capture_output=True,
+                       text=True, cwd=HERE)
+    found = {}
+    for line in (r.stdout or "").splitlines():
+        print("  " + line.strip())
+        if "=" in line:
+            name, _, state = line.strip().partition("=")
+            if name in ("ffmpeg", "ffprobe"):
+                found[name] = (state == "found")
+    if r.returncode != 0:
+        print((r.stderr or "").strip())
+        return False
+    return found.get("ffmpeg") is True and found.get("ffprobe") is True
 
 
 def ffmpeg_install_line():
@@ -42,8 +58,13 @@ def ffmpeg_install_line():
 
 
 def main():
-    if sys.version_info < (3, 10):
-        print("Setup needs Python 3.10 or newer.")
+    if sys.version_info < (3, 12):
+        print("Setup needs Python 3.12 or newer (found %s)."
+              % platform.python_version())
+        print("Install it from https://www.python.org/downloads/ "
+              "(Windows: tick 'Add Python to PATH'; macOS: use the "
+              "python.org installer or 'brew install python@3.12'; "
+              "Linux: your package manager), then run setup again.")
         return 1
     print("Python ok: %s" % platform.python_version())
 
@@ -63,12 +84,13 @@ def main():
         return 1
     print("Packages ok.")
 
-    if not has_ffmpeg():
-        print("ffmpeg not found. Install it with one command:")
+    if not check_media(python):
+        print("ffmpeg/ffprobe not found and the automatic download "
+              "failed. Install it with one command:")
         print("  %s" % ffmpeg_install_line())
         print("Then run setup again.")
         return 1
-    print("FFmpeg ok.")
+    print("Media tools ok (ffmpeg + ffprobe found).")
 
     key = os.environ.get("META_API_KEY", "").strip()
     if key:

@@ -21,7 +21,8 @@ Run: python test_render.py [out_dir]
 import os
 import sys
 
-BANNED = ("pollinations", "edge-tts", "edge_tts", "gtts")
+BANNED = ("pollinations", "edge-tts", "edge_tts", "gtts",
+          "whisper", "piper")
 BAN_FILES = ("render.py", "app.py", "meta_backend.py", "meta_image.py",
              "meta_sam.py", "requirements.txt")
 

@@ -39,12 +39,12 @@ SCRIPT_DRAFT_TOKENS = 8192
 SCRIPT_REVISE_TOKENS = 8192
 
 
+ALLOWED_MODELS = frozenset({SPARK_MODEL, WONDER_MODEL})
+
+
 def _base():
-    return os.environ.get("META_API_BASE", DEFAULT_BASE).rstrip("/")
-
-
-def _model():
-    return os.environ.get("META_TEXT_MODEL", DEFAULT_MODEL)
+    # Hard-coded Meta endpoint: no override, no other backend.
+    return DEFAULT_BASE
 
 
 def _headers(api_key=None):
@@ -82,8 +82,9 @@ def chat(prompt, model=None, max_tokens=512, api_key=None):
     in-memory key); without either, _headers raises the clear
     missing-key error instead of calling the API keyless.
 
-    Raises on any API failure: the caller must fail the job, never
-    substitute another backend.
+    Only Muse Spark and Muse Wonder are accepted (ValueError for
+    anything else). Raises on any API failure: the caller must fail
+    the job, never substitute another backend.
     """
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("prompt must be a non-empty str")
@@ -92,7 +93,11 @@ def chat(prompt, model=None, max_tokens=512, api_key=None):
         raise ValueError(
             "max_tokens must be int in 1..%d" % MAX_TOKENS_LIMIT)
     if model is None:
-        model = _model()
+        model = DEFAULT_MODEL
+    if model not in ALLOWED_MODELS:
+        raise ValueError(
+            "model must be %r or %r, got %r (Meta-only: no other "
+            "model is allowed)" % (SPARK_MODEL, WONDER_MODEL, model))
     r = requests.post(
         _base() + "/chat/completions",
         headers=_headers(api_key),

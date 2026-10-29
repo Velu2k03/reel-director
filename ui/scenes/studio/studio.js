@@ -6,6 +6,7 @@
   var durationInput = document.getElementById('durationInput');
   var styleGrid = document.getElementById('styleGrid');
   var colorGrid = document.getElementById('colorGrid');
+  var lookSummary = document.getElementById('lookSummary');
   var customInput = document.getElementById('customInput');
   var styleChoices = [];
   var colorChoices = [];
@@ -38,10 +39,8 @@
   var thinkingTimer = null;
   var thinkingPhase = null;
   var thinkingStarted = 0;
-  var thinkingWordIndex = 0;
-  var planningWords = ['Thinking', 'Imagining', 'Connecting ideas', 'Shaping your story', 'Finding the flow'];
   var thinkingMessages = {
-    planning: ['Thinking', 'Turning your brief into a scene-by-scene story.', 'You’ll review the script and visuals before production.'],
+    planning: ['Planning scenes', 'Turning your brief into a scene-by-scene story.', 'You’ll review the script and visuals before production.'],
     preparing: ['Getting ready', 'Getting your approved scenes ready to produce.', 'Your script stays just as you approved it.'],
     scenes: ['Imagining', 'Creating a picture for each scene.', 'Your chosen style carries through the whole story.'],
     sam: ['Looking closer', 'Checking the subjects in your scene images.', 'Scene checks help the visuals stay on brief.'],
@@ -136,7 +135,14 @@
   });
 
   function updateProjectTitle() {
-    projectTitle.textContent = topicInput.value.trim() || 'Untitled production';
+    var topic = topicInput.value.trim();
+    if (topic) {
+      projectTitle.textContent = topic;
+      projectTitle.removeAttribute('aria-label');
+    } else {
+      projectTitle.textContent = '';
+      projectTitle.setAttribute('aria-label', 'Untitled production');
+    }
   }
   topicInput.addEventListener('input', updateProjectTitle);
 
@@ -234,6 +240,7 @@
 
   function setJobState(state, announce) {
     workspace.dataset.jobState = state;
+    document.body.dataset.jobState = state;
     if (state !== 'planning' && state !== 'producing') stopThinking();
     var labels = { empty: 'Ready to plan', planning: 'Thinking…', 'plan-ready': 'Ready to produce', 'waiting-approval': 'Ready for your review', producing: 'Creating your video…', done: 'Your video is ready', error: 'Needs attention', cancelled: 'Production cancelled', interrupted: 'Production interrupted' };
     productionState.textContent = labels[state] || state;
@@ -284,17 +291,22 @@
     delete previewState.dataset.thinkingPhase;
   }
 
-  function syncThinkingTimer() {
+  function syncElapsedTicker() {
     clearInterval(thinkingTimer);
     thinkingTimer = null;
-    if (thinkingPhase !== 'planning' || motionPreference.matches || document.hidden) return;
-    thinkingTimer = setInterval(function () {
-      thinkingWordIndex = (thinkingWordIndex + 1) % planningWords.length;
-      setThinkingWord(planningWords[thinkingWordIndex]);
+    if (thinkingPhase !== 'planning' || document.hidden) return;
+    var tick = function () {
+      var elapsed = Math.max(0, Math.round((Date.now() - thinkingStarted) / 1000));
+      var topic = topicInput.value.trim();
+      var context = topic ? topic + ' · ' + elapsed + 's elapsed' : elapsed + 's elapsed';
+      if (thinkingContext.textContent !== context) thinkingContext.textContent = context;
+      thinkingContext.hidden = false;
       if (Date.now() - thinkingStarted > 45000) {
         thinkingNote.textContent = 'Still working on your plan. You can keep this tab open.';
       }
-    }, 4800);
+    };
+    tick();
+    thinkingTimer = setInterval(tick, 1000);
   }
 
   function showThinking(phase, job) {
@@ -312,16 +324,17 @@
     if (thinkingPhase !== phase) {
       thinkingPhase = phase;
       thinkingStarted = Date.now();
-      thinkingWordIndex = 0;
       setThinkingWord(message[0]);
       thinkingDetail.textContent = message[1];
       thinkingNote.textContent = message[2];
       stateAnnouncer.textContent = message[0] + '. ' + message[1];
-      syncThinkingTimer();
+      syncElapsedTicker();
     }
-    // Rotating planning words are ambient copy, never simulated progress.
-    // Production stages and counts come only from the server's job record.
-    var context = phase === 'planning' ? topicInput.value.trim() : '';
+    // Planning shows a static word plus the elapsed-seconds ticker
+    // above (the ticker owns the context line). Production stages
+    // and counts come only from the server's job record.
+    if (phase === 'planning' && !job) return;
+    var context = '';
     if (job) {
       context = stageCountText(phase, sceneCounts(job)).replace(/^ \(|\)$/g, '') + formatElapsed(job);
       context = context.replace(/^ · /, '');
@@ -336,13 +349,9 @@
     showThinking(active ? active[0] : finished ? 'final' : 'preparing', job);
   }
 
-  motionPreference.addEventListener('change', function () {
-    if (thinkingPhase === 'planning' && motionPreference.matches) setThinkingWord('Thinking');
-    syncThinkingTimer();
-  });
-  document.addEventListener('visibilitychange', syncThinkingTimer);
+  document.addEventListener('visibilitychange', syncElapsedTicker);
   window.addEventListener('pagehide', function () { clearInterval(thinkingTimer); });
-  window.addEventListener('pageshow', syncThinkingTimer);
+  window.addEventListener('pageshow', syncElapsedTicker);
 
   function addLog(message, type) {
     var line = document.createElement('p');
@@ -451,7 +460,7 @@
     } else if (state === 'conn-failed') {
       statusText.textContent = 'Connection failed';
     } else {
-      statusText.textContent = 'Demo mode';
+      statusText.textContent = 'Preview only (no key)';
     }
     keyRow.hidden = (state === 'connected');
   }
@@ -507,14 +516,30 @@
     });
   }
 
+  function updateLookSummary() {
+    var styleName = null;
+    var colorName = null;
+    styleChoices.forEach(function (preset) {
+      if (preset.id === selectedStyle) styleName = preset.name;
+    });
+    colorChoices.forEach(function (theme) {
+      if (theme.id === selectedColor) colorName = theme.name;
+    });
+    if (styleName && colorName) {
+      lookSummary.textContent = styleName + ', ' + colorName;
+    }
+  }
+
   function setStylePick(id) {
     selectedStyle = id;
     markPicked(styleGrid, id);
+    updateLookSummary();
   }
 
   function setColorPick(id) {
     selectedColor = id;
     markPicked(colorGrid, id);
+    updateLookSummary();
   }
 
   function currentLook() {
@@ -540,12 +565,12 @@
         btn.className = 'pick-card';
         btn.dataset.pickId = preset.id;
         btn.setAttribute('aria-pressed', 'false');
+        btn.title = preset.blurb || preset.name;
+        btn.setAttribute('aria-label',
+          preset.name + ': ' + (preset.blurb || preset.name));
         var name = document.createElement('strong');
         name.textContent = preset.name;
-        var blurb = document.createElement('span');
-        blurb.textContent = preset.blurb;
         btn.appendChild(name);
-        btn.appendChild(blurb);
         btn.addEventListener('click', function () { setStylePick(preset.id); });
         styleGrid.appendChild(btn);
       });
@@ -565,6 +590,8 @@
         btn.appendChild(dot);
         btn.appendChild(name);
         btn.title = theme.blurb || theme.name;
+        btn.setAttribute('aria-label',
+          theme.name + ': ' + (theme.blurb || theme.name));
         btn.addEventListener('click', function () { setColorPick(theme.id); });
         colorGrid.appendChild(btn);
       });

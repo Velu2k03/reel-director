@@ -14,8 +14,11 @@ Covers Phase A scope only:
     QC passes without any caption evidence (owner decision Oct 27:
     burned-in captions removed because the output was not good)
   - style and color options (presets, not typed paragraphs)
-  - truthful health (Key configured vs authenticated connection)
+  - truthful health (Key configured vs authenticated connection,
+    ffmpeg/ffprobe source incl. the static-ffmpeg fallback)
   - per-scene regenerate touches one scene only
+  - visual edits stored (dirty + video-stale after render, clean
+    before; regen consumes the new visual and clears dirty)
 
 Run: python test_phase_a.py
 """
@@ -31,6 +34,8 @@ import app
 import render
 
 FAKE_KEY = "phase-a-fake-key-for-mocked-tests-only"
+
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def check_scene_counts_and_mapping():
@@ -77,9 +82,11 @@ def check_failed_stage_reporting():
     old_key = app._MEMORY_KEY["key"]
     app._MEMORY_KEY["key"] = FAKE_KEY
     try:
-        with mock.patch.object(render, "generate_images",
-                               side_effect=RuntimeError(
-                                   "mocked Image down")):
+        with mock.patch.object(render, "_load_voice",
+                               return_value=("tok", "model")), \
+                mock.patch.object(render, "generate_images",
+                                  side_effect=RuntimeError(
+                                      "mocked Image down")):
             resp = client.post("/api/video", json={
                 "topic": "Anything",
                 "script": ["Alpha line.", "Beta line."],
@@ -277,12 +284,185 @@ def check_health_truthful():
         # ffmpeg/ffprobe honestly reported with the fields present.
         for tool in ("ffmpeg", "ffprobe"):
             assert "available" in data[tool], data
+            assert data[tool].get("source") in (
+                "tools", "path", "static-ffmpeg", "missing"), data
+            if data[tool]["available"]:
+                assert data[tool].get("version"), data
+            else:
+                assert data[tool].get("error"), data
     finally:
         app._MEMORY_KEY["key"] = old_key
         if old_env is not None:
             os.environ["META_API_KEY"] = old_env
     print("MOCKED PASS: health separates Key configured from an "
           "authenticated check, reports ffmpeg/ffprobe, leaks no key")
+
+
+def check_health_static_ffmpeg_fallback():
+    client = app.app.test_client()
+    old_key = app._MEMORY_KEY["key"]
+    old_env = os.environ.get("META_API_KEY")
+    try:
+        app._MEMORY_KEY["key"] = None
+        if "META_API_KEY" in os.environ:
+            del os.environ["META_API_KEY"]
+
+        class _Done:
+            returncode = 0
+            stdout = "ffmpeg version static-fake\nbuilt for tests"
+            stderr = ""
+
+        # tools/ and PATH miss: health uses the static-ffmpeg
+        # download and says so. No network here: the fetch is
+        # stubbed.
+        with mock.patch.object(render, "TOOLS_DIR",
+                               "/nonexistent-tools-dir"), \
+                mock.patch("shutil.which", return_value=None), \
+                mock.patch.object(render, "_static_bins",
+                                  return_value=("/fake/ffmpeg",
+                                                "/fake/ffprobe")), \
+                mock.patch("subprocess.run",
+                           return_value=_Done()):
+            data = client.get("/api/health").get_json()
+        assert data["ffmpeg"]["available"] is True, data["ffmpeg"]
+        assert data["ffmpeg"]["source"] == "static-ffmpeg", \
+            data["ffmpeg"]
+        assert "static-fake" in data["ffmpeg"]["version"], \
+            data["ffmpeg"]
+        assert data["ffprobe"]["available"] is True, data["ffprobe"]
+        assert data["ffprobe"]["source"] == "static-ffmpeg", \
+            data["ffprobe"]
+        # Download failing too: missing is reported honestly,
+        # never papered over.
+        with mock.patch.object(render, "TOOLS_DIR",
+                               "/nonexistent-tools-dir"), \
+                mock.patch("shutil.which", return_value=None), \
+                mock.patch.object(render, "_static_bins",
+                                  side_effect=RuntimeError(
+                                      "mocked offline")):
+            data = client.get("/api/health").get_json()
+        assert data["ffmpeg"]["available"] is False, data["ffmpeg"]
+        assert data["ffmpeg"]["source"] == "missing", data["ffmpeg"]
+        assert "not found" in data["ffmpeg"]["error"], data["ffmpeg"]
+        assert data["ffprobe"]["available"] is False, data["ffprobe"]
+        assert data["ffprobe"]["source"] == "missing", data["ffprobe"]
+    finally:
+        app._MEMORY_KEY["key"] = old_key
+        if old_env is not None:
+            os.environ["META_API_KEY"] = old_env
+    print("MOCKED PASS: health falls back to the static-ffmpeg "
+          "download when tools/ and PATH miss, and reports missing "
+          "honestly when the download fails")
+
+
+def check_status_pill_preview_only():
+    with open(os.path.join(HERE, "ui", "scenes", "studio", "studio.js"),
+              encoding="utf-8") as f:
+        js = f.read()
+    assert "Preview only (no key)" in js, \
+        "status pill must read 'Preview only (no key)' without a key"
+    assert "Demo mode" not in js, "status pill must not say 'Demo mode'"
+    print("MOCKED PASS: status pill reads 'Preview only (no key)', "
+          "never 'Demo mode'")
+
+
+def check_visual_edit_after_render():
+    client = app.app.test_client()
+    old_key = app._MEMORY_KEY["key"]
+    app._MEMORY_KEY["key"] = FAKE_KEY
+    tmp = tempfile.mkdtemp(prefix="phase-a-visual-")
+    job_id = "visualmock1"
+    scenes = app.build_scene_records(["First scene words."])
+    scenes[0].update({
+        "visual_prompt": "old river visual",
+        "rendered_narration": "First scene words.",
+        "image": "/videos/%s/scene_0.png" % job_id,
+        "status": "done",
+    })
+    with app.JOBS_LOCK:
+        app.JOBS[job_id] = {"id": job_id, "topic": "t",
+                            "status": "done", "stages": {},
+                            "scenes": scenes,
+                            "video": "/videos/%s/final.mp4" % job_id,
+                            "visuals": ["old river visual"],
+                            "qc": None, "error": None,
+                            "style": None, "out_dir": tmp}
+    try:
+        # Terminal job: a visual edit stores the new visual, marks
+        # the scene dirty with its reason, and flags video stale.
+        resp = client.patch("/api/job/%s/scene/0" % job_id,
+                            json={"visual_prompt":
+                                  "new mountain visual"})
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        scene = resp.get_json()["scene"]
+        assert scene["visual_prompt"] == "new mountain visual", scene
+        assert scene["dirty"] is True, scene
+        assert scene["dirty_reason"] == (
+            "visual edited after render: image shows the previous "
+            "visual; regenerate this scene"), scene
+        assert scene["status"] == "dirty", scene
+        job = client.get("/api/job/" + job_id).get_json()
+        assert job["visuals"][0] == "new mountain visual", job
+        assert job["video_stale"] is True, job
+        # Regenerating consumes the new visual and clears the dirty
+        # flag; the finished video stays flagged stale.
+        def fake_image(prompt, path, key, aspect_ratio=None,
+                       **kwargs):
+            assert "new mountain visual" in prompt, prompt
+            with open(path, "wb") as f:
+                f.write(b"mocked-scene-image")
+
+        with mock.patch("meta_image.generate_image",
+                        side_effect=fake_image), \
+                mock.patch("meta_sam.sam_segment",
+                           return_value={"subject": "s",
+                                         "concept": "mountain",
+                                         "matches": 1,
+                                         "boxes": [[1, 2, 3, 4]],
+                                         "masks": 0,
+                                         "warning": None}):
+            resp = client.post("/api/job/%s/scene/0/regenerate"
+                               % job_id)
+            assert resp.status_code == 200, \
+                resp.get_data(as_text=True)
+        scene = resp.get_json()["scene"]
+        assert scene["dirty"] is False, scene
+        assert scene["dirty_reason"] is None, scene
+        job = client.get("/api/job/" + job_id).get_json()
+        assert job["video_stale"] is True, job
+        # Queued job: a visual edit updates the plan, never dirty.
+        with app.JOBS_LOCK:
+            app.JOBS[job_id]["status"] = "queued"
+            app.JOBS[job_id]["video"] = None
+            app.JOBS[job_id].pop("video_stale", None)
+            app.JOBS[job_id]["scenes"][0].update({
+                "image": None, "status": "waiting", "dirty": False,
+                "dirty_reason": None, "rendered_narration": None})
+        resp = client.patch("/api/job/%s/scene/0" % job_id,
+                            json={"visual": "queued visual update"})
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        scene = resp.get_json()["scene"]
+        assert scene["visual_prompt"] == "queued visual update", scene
+        assert scene["dirty"] is False, scene
+        job = client.get("/api/job/" + job_id).get_json()
+        assert job["visuals"][0] == "queued visual update", job
+        assert job.get("video_stale") is not True, job
+        # Errored-early job (no rendered image): plan update, clean.
+        with app.JOBS_LOCK:
+            app.JOBS[job_id]["status"] = "error"
+        resp = client.patch("/api/job/%s/scene/0" % job_id,
+                            json={"visual_prompt": "early visual fix"})
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        scene = resp.get_json()["scene"]
+        assert scene["visual_prompt"] == "early visual fix", scene
+        assert scene["dirty"] is False, scene
+    finally:
+        app._MEMORY_KEY["key"] = old_key
+        with app.JOBS_LOCK:
+            app.JOBS.pop(job_id, None)
+    print("MOCKED PASS: visual edits store the new visual; after "
+          "render the scene is dirty with its reason and the video "
+          "stays stale until re-rendered")
 
 
 def check_regenerate_single_scene():
@@ -348,8 +528,11 @@ def main():
     check_no_caption_qc_gate()
     check_style_options()
     check_health_truthful()
+    check_health_static_ffmpeg_fallback()
+    check_status_pill_preview_only()
+    check_visual_edit_after_render()
     check_regenerate_single_scene()
-    print("MOCKED ALL PASS: 8 Phase A checks. Live evidence still "
+    print("MOCKED ALL PASS: 11 Phase A checks. Live evidence still "
           "required: test_meta.py, test_sam.py, test_render.py.")
 
 

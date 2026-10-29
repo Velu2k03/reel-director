@@ -1,7 +1,7 @@
 """Test the Meta Model API key: Spark draft model + Wonder revise model.
 
 Usage (run from this directory, key required):
-    export META_API_KEY="your key here, local only"
+    set META_API_KEY in the environment, then run:
     python test_meta.py            # models-list check + tiny Spark call
     python test_meta.py --chat     # also runs one tiny Wonder call
 

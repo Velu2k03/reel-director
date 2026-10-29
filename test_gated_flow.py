@@ -25,6 +25,9 @@ Covers the gated-flow brief:
     (deduped) director findings, solo-audience group-language
     flag + prompt guard, audience preserved as given.
   - Codex P2 stubs: fake image/chat accept aspect_ratio/api_key.
+  - Voice preflight: the local MMS voice loads before the first
+    paid image call; a voice-load failure raises with zero image
+    calls, success is recorded in decisions.
 
 Run: python test_gated_flow.py
 """
@@ -632,6 +635,72 @@ def check_codex_p2_stub_signatures():
           "with no TypeError, keys threaded end to end")
 
 
+def check_voice_preflight_before_paid_images():
+    tmp = tempfile.mkdtemp(prefix="gated-preflight-")
+    image_calls = []
+
+    def fake_image(prompt, out_path, api_key, aspect_ratio=None,
+                   **kwargs):
+        image_calls.append(prompt)
+        with open(out_path, "wb") as f:
+            f.write(b"fake-png-bytes")
+        return out_path
+
+    scene = {"id": "scene-1",
+             "narration": "Rivers cut valleys over thousands of years.",
+             "visual": "wide river valley at dawn",
+             "visual_prompt": "wide river valley at dawn",
+             "subject": "river valley"}
+    # Failure: a voice-load failure raises before generate_image
+    # is ever called.
+    with mock.patch.object(render, "_load_voice",
+                           side_effect=RuntimeError(
+                               "mocked voice load failure")), \
+            mock.patch.object(render.meta_image, "generate_image",
+                              side_effect=fake_image):
+        try:
+            render.run_pipeline([scene], "Rivers", tmp,
+                                api_key=FAKE_KEY)
+        except RuntimeError as e:
+            assert "mocked voice load failure" in str(e), e
+        else:
+            raise AssertionError(
+                "voice-load failure did not raise before images")
+    assert image_calls == [], image_calls
+    # Success: the preflight is recorded as real stage detail in
+    # the decisions threaded into QC.
+    seen = {}
+
+    def fake_qc(path, sam_results=None, backends=None,
+                decisions=None, **kwargs):
+        seen["decisions"] = list(decisions or [])
+        return {"passed": True}
+
+    with mock.patch.object(render, "_load_voice",
+                           return_value=("tok", "model")), \
+            mock.patch.object(render, "generate_images",
+                              return_value=(["img0.png"], "meta")), \
+            mock.patch.object(render, "sam_check",
+                              return_value=[{"scene": 0}]), \
+            mock.patch.object(render, "synthesize_voice",
+                              return_value=["aud0.wav"]), \
+            mock.patch.object(render, "media_duration",
+                              return_value=1.0), \
+            mock.patch.object(render, "assemble",
+                              return_value=os.path.join(
+                                  tmp, "final.mp4")), \
+            mock.patch.object(render, "qc_report",
+                              side_effect=fake_qc):
+        render.run_pipeline([scene], "Rivers", tmp, api_key=FAKE_KEY)
+    preflight = [d for d in seen.get("decisions", [])
+                 if "voice preflight ok" in d.get("decision", "")]
+    assert len(preflight) == 1, seen.get("decisions")
+    assert render.VOICE_MODEL_ID in preflight[0]["decision"], preflight
+    print("MOCKED PASS: voice-load failure raises before the first "
+          "paid image call (generate_image x0); success records the "
+          "voice preflight in decisions")
+
+
 def main():
     check_script_stage_stops_at_approval()
     check_video_requires_approval()
@@ -645,7 +714,8 @@ def main():
     check_solo_group_language_flagged_and_forbidden()
     check_edit_before_produce_is_approved()
     check_codex_p2_stub_signatures()
-    print("MOCKED ALL PASS: 12 gated-flow checks. Live evidence "
+    check_voice_preflight_before_paid_images()
+    print("MOCKED ALL PASS: 13 gated-flow checks. Live evidence "
           "still required: script-stop run, approved end-to-end "
           "run, test_meta/test_sam/test_render live.")
 

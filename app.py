@@ -30,7 +30,6 @@ locally. A failed Meta call fails the job with its real error.
 
 import json
 import os
-import shutil
 import subprocess
 import threading
 import time
@@ -256,24 +255,26 @@ def _safe_error(exc, limit=500):
 
 def _media_tool_status(name):
     """Accurate local availability check for ffmpeg/ffprobe: a tools/
-    build, then PATH, then a real --version run."""
-    path = render._tool(name)
-    resolved = path if os.path.isabs(path) else shutil.which(name)
-    if not resolved:
-        return {"available": False, "version": None,
-                "error": "%s not found: install ffmpeg and retry" % name}
+    build, then PATH, then the static-ffmpeg download (fetched once
+    on first use), then a real --version run. source names where
+    the binary came from: tools, path, static-ffmpeg, or missing."""
+    path, source = render._tool_with_source(name)
+    if source == "missing":
+        return {"available": False, "version": None, "source": source,
+                "error": "%s not found (automatic download failed): "
+                         "install ffmpeg and retry" % name}
     try:
-        r = subprocess.run([resolved, "-version"], capture_output=True,
+        r = subprocess.run([path, "-version"], capture_output=True,
                            text=True, timeout=15)
     except Exception as e:
-        return {"available": False, "version": None,
+        return {"available": False, "version": None, "source": source,
                 "error": "%s present but not runnable: %s"
                          % (name, _safe_error(e, 200))}
     if r.returncode != 0:
-        return {"available": False, "version": None,
+        return {"available": False, "version": None, "source": source,
                 "error": "%s --version failed" % name}
     first = (r.stdout or "").strip().splitlines()
-    return {"available": True,
+    return {"available": True, "source": source,
             "version": first[0][:120] if first else name}
 
 
@@ -1581,7 +1582,9 @@ def edit_scene(job_id, index):
     Before a render runs (queued job) this updates the plan the render
     will use. After a render (done or error) the scene is marked dirty
     with its reason, so old audio is never silently left attached to
-    new narration. While a render is running, edits are refused (409):
+    new narration and an old image is never silently kept for a new
+    visual (a visual edit also flags the finished video stale).
+    While a render is running, edits are refused (409):
     the in-flight render owns the plan. style must be a preset id,
     color a theme id, style_custom a short phrase: unknown ids and
     paragraph-length custom text fail with a clear 400.
@@ -1650,6 +1653,12 @@ def edit_scene(job_id, index):
             # Queued: update the plan before the render starts.
             if narration is not None:
                 scene_or_resp["narration"] = narration.strip()
+            if visual is not None:
+                scene_or_resp["visual_prompt"] = visual.strip()
+                try:
+                    job["visuals"][index] = visual.strip()
+                except (IndexError, TypeError, KeyError):
+                    pass
             scene_or_resp["dirty"] = False
             scene_or_resp["dirty_reason"] = None
             resp = jsonify({"scene": scene_or_resp, "plan": "updated"})
@@ -1672,6 +1681,24 @@ def edit_scene(job_id, index):
                 scene_or_resp["narration"] = new_text
                 if scene_or_resp.get("status") == "done":
                     scene_or_resp["status"] = "dirty"
+            if visual is not None:
+                new_visual = visual.strip()
+                scene_or_resp["visual_prompt"] = new_visual
+                try:
+                    job["visuals"][index] = new_visual
+                except (IndexError, TypeError, KeyError):
+                    pass
+                if scene_or_resp.get("image"):
+                    # A rendered image exists: it still shows the
+                    # previous visual.
+                    scene_or_resp["dirty"] = True
+                    scene_or_resp["dirty_reason"] = (
+                        "visual edited after render: image shows the "
+                        "previous visual; regenerate this scene")
+                    if scene_or_resp.get("status") == "done":
+                        scene_or_resp["status"] = "dirty"
+                    if job.get("video"):
+                        job["video_stale"] = True
             if look_changed and job.get("video"):
                 # The finished video's images used the old look.
                 job["video_stale"] = True

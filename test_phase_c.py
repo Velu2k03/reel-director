@@ -282,8 +282,10 @@ def check_workspace_states():
             time.sleep(2.0)
             raise RuntimeError("mocked Image down")
 
-        with mock.patch.object(render, "generate_images",
-                               side_effect=_slow_image_down):
+        with mock.patch.object(render, "_load_voice",
+                               return_value=("tok", "model")), \
+                mock.patch.object(render, "generate_images",
+                                  side_effect=_slow_image_down):
             resp = client.post("/api/video", json={
                 "topic": "Rivers",
                 "script": ["Alpha line.", "Beta line."],

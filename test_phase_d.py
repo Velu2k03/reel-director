@@ -215,6 +215,8 @@ def check_failed_stage_reporting():
     job_id = None
     try:
         with mock.patch.object(app, "VIDEOS_DIR", tmpv), \
+             mock.patch.object(render, "_load_voice",
+                               return_value=("tok", "model")), \
              mock.patch.object(render, "generate_images",
                                side_effect=RuntimeError(
                                    "mocked Image down")):
@@ -546,18 +548,81 @@ def check_secrets_safety():
           "outputs ignored, no key in frontend code")
 
 
+def check_waiting_plan_persists_across_restore():
+    client = app.app.test_client()
+    old_key = app._MEMORY_KEY["key"]
+    app._MEMORY_KEY["key"] = FAKE_KEY
+    tmpv = tempfile.mkdtemp(prefix="phase-d-waiting-")
+    lines = ["Rivers cut valleys over thousands of years of flow.",
+             "Valley walls keep rocky layers that students can read."]
+    visuals = ["wide river valley at dawn with a heron landing",
+               "close-up water polishing stones under noon light"]
+    calls = {"n": 0}
+
+    def fake_visual(topic, audience, narration, model=None,
+                    api_key=None):
+        out = visuals[calls["n"] % len(visuals)]
+        calls["n"] += 1
+        return "VISUAL: " + out
+
+    def echo_revise_fn(scene, reasons, brief, api_key=None):
+        return (scene["narration"], scene["visual_prompt"])
+
+    try:
+        with mock.patch.object(app, "VIDEOS_DIR", tmpv), \
+             mock.patch.object(app, "draft_script",
+                               return_value="\n".join(lines)), \
+             mock.patch.object(app, "revise_with_note",
+                               return_value=("\n".join(lines),
+                                             "mocked note")), \
+             mock.patch.object(app, "describe_visual",
+                               side_effect=fake_visual), \
+             mock.patch.object(app, "_spark_critique_raw",
+                               return_value="[]"), \
+             mock.patch.object(app, "_spark_revise_scene",
+                               side_effect=echo_revise_fn):
+            resp = client.post("/api/script", json={
+                "topic": "How rivers carve valleys",
+                "audience": "middle-school science students",
+                "scene_count": 2})
+            assert resp.status_code == 200, resp.get_data(as_text=True)
+            data = resp.get_json()
+            assert data["state"] == "waiting_approval", data
+            job_id = data["job_id"]
+            resp = client.patch("/api/job/%s/scene/0" % job_id,
+                                json={"narration":
+                                      "Edited opening line here."})
+            assert resp.status_code == 200, resp.get_data(as_text=True)
+            with app.JOBS_LOCK:
+                app.JOBS.clear()
+            summary = app._restore_jobs()
+            assert summary["restored"] == 1, summary
+            job = client.get("/api/job/" + job_id).get_json()
+            assert job["status"] == "waiting_approval", job
+            assert job["scenes"][0]["narration"] == \
+                "Edited opening line here.", job
+    finally:
+        app._MEMORY_KEY["key"] = old_key
+        with app.JOBS_LOCK:
+            app.JOBS.clear()
+        shutil.rmtree(tmpv, ignore_errors=True)
+    print("MOCKED PASS: waiting_approval plan with a pre-approval "
+          "edit restores from disk after a simulated restart")
+
+
 def main():
     check_scene_counts_and_mapping()
     check_structured_response_validation()
     check_bounded_revision()
     check_failed_stage_reporting()
     check_job_restoration()
+    check_waiting_plan_persists_across_restore()
     check_no_caption_failure_mode()
     check_aspect_propagation()
     check_duplicate_protection()
     check_cancel_and_retry()
     check_secrets_safety()
-    print("MOCKED ALL PASS: 10 Phase D checks. Live evidence still "
+    print("MOCKED ALL PASS: 11 Phase D checks. Live evidence still "
           "required: test_meta.py, test_sam.py, test_render.py, plus "
           "the live Step 0 workspace job.")
 
