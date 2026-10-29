@@ -756,19 +756,26 @@ def sam_check(scenes, image_paths, api_key, decisions=None,
 
 def assemble(scenes, image_paths, audio_paths, topic, out_dir,
              on_scene=None, aspect_ratio=None):
-    """Per-scene segments (image + voice, no burned-in text), then
-    concat.
+    """One ffmpeg filtergraph for the whole video (image + voice,
+    no burned-in text).
 
-    The segment frame matches the selected aspect ratio (9:16
-    vertical 720x1280 default, 16:9 1280x720). Source art is
-    center-cropped to the selected format and then scaled to the
-    exact output dimensions: a 16:9 source in a 9:16 job loses its
-    side edges, it never stretches. No SRT file is written and no
-    subtitles filter runs: segments carry image plus voice only
-    (owner decision Oct 27, captions removed because the burned-in
-    output was not good). A failed ffmpeg segment fails the job
-    with the real ffmpeg error. on_scene(i, "assembled",
-    {"duration": dur}) fires per finished segment.
+    Every scene moves: a slow Ken Burns zoom (in on even scenes,
+    out on odd ones, about 15% over the scene) so no frame is a
+    frozen still, scenes dissolve into each other with a 0.5s
+    crossfade (video xfade + audio acrossfade), and the whole
+    video fades in and out over 0.3s / 0.5s. The frame matches
+    the selected aspect ratio (9:16 vertical 720x1280 default,
+    16:9 1280x720). Source art is center-cropped to the selected
+    format and then scaled to the exact output dimensions: a 16:9
+    source in a 9:16 job loses its side edges, it never stretches.
+    fps is normalised to 30 before zoompan, so the zoom length
+    matches the voice duration. No SRT file is written and no
+    subtitles filter runs: the output carries image plus voice
+    only (owner decision Oct 27, captions removed because the
+    burned-in output was not good). A failed ffmpeg render fails
+    the job with the real ffmpeg error. on_scene(i, "assembled",
+    {"duration": dur}) fires for every scene once the finished
+    file exists.
     """
     if not (len(scenes) == len(image_paths) == len(audio_paths)):
         raise ValueError(
@@ -789,50 +796,75 @@ def assemble(scenes, image_paths, audio_paths, topic, out_dir,
         pass
     # Center-crop to the target aspect first (a no-op when the
     # source already matches), then scale exact: never stretch.
-    crop_scale = ("crop=w='min(iw,ih*%d/%d)':h='min(ih,iw*%d/%d)',"
-                  "scale=%d:%d" % (width, height, height, width,
-                                   width, height))
-    parts = []
-    for i, (scene, img, aud) in enumerate(
-            zip(scenes, image_paths, audio_paths)):
-        dur = media_duration(aud)
-        seg = os.path.join(out_dir, "seg_%d.mp4" % i)
-        ffmpeg = _ffmpeg_bin()
-        cmd = [ffmpeg, "-y", "-loop", "1", "-i", img, "-i", aud,
-               "-vf", crop_scale,
-               "-c:v", "libx264", "-pix_fmt", "yuv420p",
-               "-tune", "stillimage",
-               "-c:a", "aac", "-t", str(dur), seg]
-        r = _run(cmd)
-        if r.returncode != 0:
-            detail = ((r.stderr or "").strip().splitlines() or [""])[-1]
-            err = RuntimeError(
-                "segment rendering failed for scene %d "
-                "(ffmpeg exit %d): %s"
-                % (i, r.returncode, detail[:300]))
-            if on_scene is not None:
-                on_scene(i, "assembled",
-                         {"ok": False, "error": str(err)[:300]})
-            raise err
-        if (not os.path.exists(seg) or os.path.getsize(seg) == 0):
-            err = RuntimeError(
-                "empty segment for scene %d" % i)
-            if on_scene is not None:
-                on_scene(i, "assembled",
-                         {"ok": False, "error": str(err)[:300]})
-            raise err
-        parts.append(seg)
-        if on_scene is not None:
-            on_scene(i, "assembled", {"ok": True, "duration": dur})
-    lst = os.path.join(out_dir, "parts.txt")
-    with open(lst, "w") as f:
-        for p in parts:
-            f.write("file '%s'\n" % os.path.abspath(p))
+    # fps is normalised to 30 before zoompan (a zoompan on an
+    # unnormalised stream shortens or stretches the scene).
+    crossfade = 0.5
+    durs = [media_duration(aud) for aud in audio_paths]
+    total = sum(durs) - crossfade * max(0, len(durs) - 1)
+    cmd = [_ffmpeg_bin(), "-y"]
+    for img, aud in zip(image_paths, audio_paths):
+        cmd += ["-framerate", "30", "-loop", "1", "-i", img,
+                "-i", aud]
+    filters = []
+    for i, dur in enumerate(durs):
+        vi = 2 * i
+        zoom = ("min(zoom+0.001,1.15)" if i % 2 == 0
+                else "max(1.15-0.001*on,1.0)")
+        filters.append(
+            "[%d:v]fps=30,crop=w='min(iw,ih*%d/%d)':h='min(ih,iw*%d/%d)',"
+            "scale=%d:%d,zoompan=z='%s':x='iw/2-(iw/zoom/2)':"
+            "y='ih/2-(ih/zoom/2)':d=1:s=%dx%d:fps=30,"
+            "trim=duration=%.3f,setpts=PTS-STARTPTS[v%d]"
+            % (vi, width, height, height, width, width, height,
+               zoom, width, height, dur, i))
+        filters.append(
+            "[%d:a]aresample=48000,atrim=duration=%.3f,"
+            "asetpts=PTS-STARTPTS[a%d]" % (vi + 1, dur, i))
+    cur, off = "v0", durs[0] - crossfade
+    for i in range(1, len(durs)):
+        nxt = "vx%d" % i
+        filters.append("[%s][v%d]xfade=transition=fade:duration=%.3f:"
+                       "offset=%.3f[%s]" % (cur, i, crossfade, off, nxt))
+        cur, off = nxt, off + durs[i] - crossfade
+    acur, aoff = "a0", durs[0] - crossfade
+    for i in range(1, len(durs)):
+        nxt = "ax%d" % i
+        filters.append("[%s][a%d]acrossfade=d=%.3f[%s]"
+                       % (acur, i, crossfade, nxt))
+        acur, aoff = nxt, aoff + durs[i] - crossfade
+    filters.append(
+        "[%s]fade=t=in:st=0:d=0.3,fade=t=out:st=%.3f:d=0.5,"
+        "format=yuv420p[vout]" % (cur, max(0.0, total - 0.5)))
+    filters.append(
+        "[%s]afade=t=in:st=0:d=0.3,afade=t=out:st=%.3f:d=0.5[aout]"
+        % (acur, max(0.0, total - 0.5)))
     safe = "".join(c if c.isalnum() else "_" for c in topic)[:30]
     final = os.path.join(out_dir, "final_%s.mp4" % safe)
-    _run([_ffmpeg_bin(), "-y", "-f", "concat", "-safe", "0",
-          "-i", lst, "-c", "copy", "-movflags", "+faststart",
-          final], timeout=300).check_returncode()
+    cmd += ["-filter_complex", ";".join(filters),
+            "-map", "[vout]", "-map", "[aout]",
+            "-c:v", "libx264", "-r", "30", "-c:a", "aac",
+            "-movflags", "+faststart", final]
+    r = _run(cmd, timeout=600)
+    if r.returncode != 0:
+        detail = ((r.stderr or "").strip().splitlines() or [""])[-1]
+        err = RuntimeError(
+            "video rendering failed (ffmpeg exit %d): %s"
+            % (r.returncode, detail[:300]))
+        if on_scene is not None:
+            for i in range(len(durs)):
+                on_scene(i, "assembled",
+                         {"ok": False, "error": str(err)[:300]})
+        raise err
+    if not os.path.exists(final) or os.path.getsize(final) == 0:
+        err = RuntimeError("empty final video")
+        if on_scene is not None:
+            for i in range(len(durs)):
+                on_scene(i, "assembled",
+                         {"ok": False, "error": str(err)[:300]})
+        raise err
+    if on_scene is not None:
+        for i, dur in enumerate(durs):
+            on_scene(i, "assembled", {"ok": True, "duration": dur})
     return final
 
 

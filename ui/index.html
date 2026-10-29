@@ -64,6 +64,7 @@
         <p class="lock-note" id="lockHint" hidden>Production in progress. Editing is locked.</p>
         <button class="quiet-btn" id="cancelBtn" type="button" hidden>Cancel production</button><button class="quiet-btn" id="retryBtn" type="button" hidden>Retry from the stored plan</button>
         <p class="hint" id="cancelHint" hidden>Cancellation takes effect at the next stage boundary. The current operation finishes first.</p><p class="hint" id="planHint" hidden>Review the narration and visuals, then approve. Nothing renders until you’re ready.</p>
+        <div class="story-check" id="storyCheck" hidden><h3>What changed in your story</h3><p class="hint">Plain notes from the story check. No jargon, just what was fixed and what still needs you.</p><ul class="decision-list" id="decisionList"></ul></div>
       </section>
  </aside>
 <section class="panel preview-panel" aria-labelledby="preview-title">
@@ -82,21 +83,11 @@
         <p class="preview-meta" id="previewMeta" hidden></p>
         <div class="production-strip"><div class="progress-heading"><span class="progress-title">Production</span><span id="previewDuration">Auto length</span></div><ol class="progress" id="progressList" aria-label="Production progress"></ol><p class="current-step" id="currentStep" aria-live="polite"></p></div>
       </section>
- <aside class="right-dock" aria-label="Inspector"><div class="dock-tabs" role="tablist" aria-label="Inspector"><button class="editor-tab active" id="directorTab" role="tab" aria-selected="true" aria-controls="directorPane" data-inspector-tab="director" type="button">Director</button><button class="editor-tab" id="sceneTab" role="tab" aria-selected="false" aria-controls="scenePane" data-inspector-tab="scene" type="button" tabindex="-1" disabled>Scene</button><button class="editor-tab" id="detailsTab" role="tab" aria-selected="false" aria-controls="production-details" data-inspector-tab="details" type="button" tabindex="-1">Details</button></div>
-<aside class="panel director-col" id="directorPane" role="tabpanel" aria-labelledby="directorTab">
-      <div class="panel-heading"><h2 id="director-title"><span class="director-spark material-symbols-outlined" aria-hidden="true">auto_awesome</span>Director notes</h2></div>
-      <p class="director-empty" id="directorEmpty"></p>
-      <div class="review-guide"><p class="guide-title">What the director looks for</p><ul><li><span class="material-symbols-outlined" aria-hidden="true">bolt</span><div><strong>An opening that lands</strong><span>A clear hook for your audience.</span></div></li><li><span class="material-symbols-outlined" aria-hidden="true">view_carousel</span><div><strong>Scenes that connect</strong><span>Relevant visuals, less repetition.</span></div></li><li><span class="material-symbols-outlined" aria-hidden="true">fact_check</span><div><strong>A finish you can check</strong><span>Sound, duration, and dimensions.</span></div></li></ul></div>
-      <ul class="decision-list" id="decisionList"></ul>
-
-    </aside>
- <section class="panel scene-inspector-pane" id="scenePane" role="tabpanel" aria-labelledby="sceneTab" hidden><h2>Scene inspector</h2><div id="selectedSceneBody"><p>Select a scene in the sequence below.</p></div></section>
-<section class="panel tech-panel" id="production-details" role="tabpanel" aria-labelledby="detailsTab" hidden><h2>Production details</h2><p class="hint" id="connLine">Checking connection...</p><h3>Activity</h3><div class="log-console" id="jobLog" aria-label="Job log"></div><pre class="full-report" id="qcFull" hidden></pre></section>
- </aside>
 <section class="panel board-panel" id="storyboard" aria-labelledby="storyboard-title">
-      <div class="panel-heading"><div class="board-heading"><h2 id="storyboard-title">Your scenes</h2><span id="boardCount" class="count-label"></span></div><span class="section-note">Select a scene to inspect or edit</span></div>
+      <div class="panel-heading"><div class="board-heading"><h2 id="storyboard-title">Your scenes</h2><span id="boardCount" class="count-label"></span></div><span class="section-note">Tap a scene to edit it</span></div>
       <div class="board-idle"><p class="board-empty" id="boardEmpty"></p></div>
       <div class="storyboard" id="boardGrid"></div>
+      <div class="scene-editor" id="sceneEditor" aria-label="Selected scene editor"></div>
     </section>
  <div class="editor-statusbar"><span class="status-left"><span class="dot" aria-hidden="true"></span><span id="productionState">Ready to plan</span></span><span class="status-center">Meta AI production</span><span class="status-right"><span class="material-symbols-outlined" aria-hidden="true">computer</span>Local project</span></div>
 </div>

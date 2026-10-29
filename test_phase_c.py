@@ -139,16 +139,17 @@ def check_assemble_dims():
             final = render.assemble(scenes, imgs, auds, "Topic", tmp,
                                     aspect_ratio=aspect)
         assert os.path.exists(final), final
-        seg_cmds = [c for c in fake.cmds if "seg_" in c[-1]]
-        assert len(seg_cmds) == 2, fake.cmds
-        for cmd in seg_cmds:
-            vf = cmd[cmd.index("-vf") + 1]
-            assert dims in vf, (aspect, vf)
-            assert "subtitles" not in vf, (aspect, vf)
-            assert "force_style" not in vf, (aspect, vf)
-            assert "yuv420p" in cmd, cmd  # browser-compatible pixels
-        concat = [c for c in fake.cmds if c[-1] == final][0]
-        assert "+faststart" in concat, concat
+        assert len(fake.cmds) == 1, fake.cmds
+        cmd = fake.cmds[0]
+        fc = cmd[cmd.index("-filter_complex") + 1]
+        assert dims in fc, (aspect, fc)
+        assert "crop=" in fc, (aspect, fc)
+        assert "subtitles" not in fc, (aspect, fc)
+        assert "force_style" not in fc, (aspect, fc)
+        assert "zoompan" in fc, (aspect, fc)
+        assert "xfade" in fc and "acrossfade" in fc, (aspect, fc)
+        assert "yuv420p" in fc, cmd  # browser-compatible pixels
+        assert "+faststart" in cmd, cmd
     # Unknown formats fail fast instead of rendering wrong.
     tmp = tempfile.mkdtemp(prefix="phase-c-assemble-bad-")
     scenes = _two_scenes()

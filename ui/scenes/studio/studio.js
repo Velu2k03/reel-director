@@ -63,21 +63,18 @@
   var planProblem = document.getElementById('planProblem');
   var ackProduceBtn = document.getElementById('ackProduceBtn');
   var ackProduceBtnText = document.getElementById('ackProduceBtnText');
-  var directorEmpty = document.getElementById('directorEmpty');
+  var storyCheck = document.getElementById('storyCheck');
   var decisionList = document.getElementById('decisionList');
   var boardGrid = document.getElementById('boardGrid');
   var boardCount = document.getElementById('boardCount');
   var boardEmpty = document.getElementById('boardEmpty');
-  var jobLog = document.getElementById('jobLog');
-  var qcFull = document.getElementById('qcFull');
-  var connLine = document.getElementById('connLine');
+  var sceneEditor = document.getElementById('sceneEditor');
 
   var previewFormat = document.getElementById('previewFormat');
   var previewDuration = document.getElementById('previewDuration');
   var productionState = document.getElementById('productionState');
   var projectTitle = document.getElementById('projectTitle');
   var exportVideo = document.getElementById('exportVideo');
-  var selectedSceneBody = document.getElementById('selectedSceneBody');
   var sceneInspectors = [];
   var currentStoryboardScenes = [];
   var selectedSceneIndex = 0;
@@ -104,21 +101,8 @@
     if (name === 'script') requestAnimationFrame(sizeScriptEditor);
   }
 
-  function activateInspectorTab(name) {
-    document.querySelectorAll('[data-inspector-tab]').forEach(function (tab) {
-      var active = tab.dataset.inspectorTab === name;
-      tab.classList.toggle('active', active);
-      tab.setAttribute('aria-selected', String(active));
-      tab.tabIndex = active ? 0 : -1;
-      document.getElementById(tab.getAttribute('aria-controls')).hidden = !active;
-    });
-  }
-
   document.querySelectorAll('[data-editor-tab]').forEach(function (tab) {
     tab.addEventListener('click', function () { activateEditorTab(tab.dataset.editorTab); });
-  });
-  document.querySelectorAll('[data-inspector-tab]').forEach(function (tab) {
-    tab.addEventListener('click', function () { activateInspectorTab(tab.dataset.inspectorTab); });
   });
   document.querySelectorAll('[role="tablist"]').forEach(function (list) {
     list.addEventListener('keydown', function (event) {
@@ -149,15 +133,15 @@
   function selectScene(index, inspect) {
     if (!sceneInspectors[index]) return;
     selectedSceneIndex = index;
-    selectedSceneBody.replaceChildren(sceneInspectors[index]);
+    if (sceneEditor) sceneEditor.replaceChildren(sceneInspectors[index]);
     document.querySelectorAll('#boardGrid .scene').forEach(function (card, i) {
       card.dataset.selected = String(i === index);
       var button = card.querySelector('.scene-select');
       if (button) button.setAttribute('aria-pressed', String(i === index));
     });
-    document.getElementById('sceneTab').disabled = false;
     if (inspect) {
-      activateInspectorTab('scene');
+      var card = document.querySelectorAll('#boardGrid .scene')[index];
+      if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       if (outputVideo.getAttribute('src') && outputVideo.readyState >= 1) {
         var start = currentStoryboardScenes.slice(0, index).reduce(function (total, scene) {
           return total + (typeof scene.duration === 'number' ? scene.duration : 0);
@@ -179,9 +163,9 @@
   var cancelHint = document.getElementById('cancelHint');
 
   var STAGES = [
-    ['scenes', 'Images'], ['sam', 'Scene check'],
-    ['voice', 'Voice'], ['assemble', 'Assemble'], ['qc', 'Checks'],
-    ['final', 'Final video']
+    ['scenes', 'Pictures'], ['sam', 'Picture check'],
+    ['voice', 'Voice'], ['assemble', 'Putting it together'],
+    ['qc', 'Final check'], ['final', 'Your video']
   ];
   var PROD_TOTAL = STAGES.length;
   var STATE_NAMES = { waiting: 'Waiting', working: 'Working', done: 'Done', error: 'Error', interrupted: 'Interrupted', cancelled: 'Cancelled' };
@@ -354,11 +338,7 @@
   window.addEventListener('pageshow', syncElapsedTicker);
 
   function addLog(message, type) {
-    var line = document.createElement('p');
-    line.className = 'log-line' + (type ? ' ' + type : '');
-    line.textContent = message;
-    jobLog.appendChild(line);
-    jobLog.scrollTop = jobLog.scrollHeight;
+    /* Details tab removed: the job log lives in job.json, not the UI. */
   }
 
   function showProblem(error, fix) {
@@ -500,13 +480,11 @@
       var connOn = !!(data.connection && data.connection.checked && data.connection.ok);
       var connFailed = !!(keyOn && data.connection && data.connection.checked && !data.connection.ok);
       setHealth(connOn ? 'connected' : (connFailed ? 'conn-failed' : (keyOn ? 'key' : 'demo')));
-      connLine.textContent = connDetail(data) || 'Connection information unavailable.';
       if (data.connection && !data.connection.ok && data.connection.error) {
         addLog('Status: ' + (keyOn ? 'key configured, ' : '') + 'connection failed: ' + data.connection.error, 'error');
       }
     } catch (error) {
       setHealth('demo');
-      connLine.textContent = 'Connection information unavailable.';
     }
   }
 
@@ -687,7 +665,7 @@
     produceBtn.disabled = locked;
     ackProduceBtn.hidden = locked || !pendingDurationAck;
     planForm.querySelectorAll('input, textarea, button').forEach(function (control) { control.disabled = locked; });
-    document.querySelectorAll('#selectedSceneBody textarea, #selectedSceneBody button').forEach(function (control) {
+    document.querySelectorAll('#boardGrid .scene-body textarea, #boardGrid .scene-body button').forEach(function (control) {
       if (locked) {
         if (control.dataset.lockRestore === undefined) control.dataset.lockRestore = String(control.disabled);
         control.disabled = true;
@@ -830,7 +808,7 @@
         var rev = document.createElement('p');
         rev.className = 'director-line';
         var crit = (scene.revision_criteria || []).join(', ') || 'director review';
-        rev.textContent = 'Director: ' + scene.revision_status + ' (' + crit + ').' +
+        rev.textContent = 'Story check: ' + scene.revision_status + ' (' + crit + ').' +
           (scene.before_narration ? ' Narration was: "' + scene.before_narration + '" now: "' + (scene.after_narration || scene.narration) + '".' : '') +
           (scene.before_visual ? ' Visual was: "' + scene.before_visual + '" now: "' + (scene.after_visual || '') + '".' : '');
         body.appendChild(rev);
@@ -838,7 +816,7 @@
       (unmetByScene[scene.scene_id] || []).forEach(function (u) {
         var un = document.createElement('p');
         un.className = 'director-unmet';
-        un.textContent = 'Director unresolved (' + u.criterion + '): ' + u.detail + ' Editorial review did not pass for this scene.';
+        un.textContent = 'Story check unresolved (' + u.criterion + '): ' + u.detail + ' The story check did not pass for this scene.';
         body.appendChild(un);
       });
       var row = document.createElement('div');
@@ -877,11 +855,6 @@
     });
     boardCount.textContent = scenes.length ? scenes.length + (scenes.length === 1 ? ' scene' : ' scenes') : '';
     if (scenes.length) selectScene(Math.min(selectedSceneIndex, scenes.length - 1), false);
-    else {
-      selectedSceneBody.replaceChildren();
-      document.getElementById('sceneTab').disabled = true;
-      if (!document.getElementById('scenePane').hidden) activateInspectorTab('director');
-    }
     boardSig = sceneSig(scenes);
   }
 
@@ -902,9 +875,8 @@
     decisionList.appendChild(li);
   }
 
-  function renderDirector(job, failed) {
+  function renderStoryCheck(job, failed) {
     decisionList.innerHTML = '';
-    directorEmpty.style.display = 'none';
     var log = job && job.director;
     if (log && log.brief) {
       addDecision('info', 'info', 'Brief: "' + log.brief.topic + '" for ' + log.brief.audience + ', target ' + log.brief.target_duration_s + 's.');
@@ -945,9 +917,9 @@
       addDecision('warning', 'warn', 'Unresolved: ' + u.scene_id + ' still fails ' + u.criterion + '. Not passed.');
     });
     if (log && log.editorial_pass) {
-      addDecision('check_circle', 'ok', 'Director review passed (' + attempts.length + ' revision(s)).');
+      addDecision('check_circle', 'ok', 'Story check passed (' + attempts.length + ' revision(s)).');
     } else if (log && !log.editorial_pass) {
-      addDecision('warning', 'warn', 'Director review did not fully pass.');
+      addDecision('warning', 'warn', 'Story check did not fully pass.');
     }
     if (job && (job.style_name || job.color_name)) {
       addDecision('palette', 'info', 'Look: ' + (job.style_name || 'Flat vector') + ' · ' + (job.color_name || 'Facebook blue') + '.');
@@ -997,10 +969,7 @@
     if (failed) {
       addDecision('error', 'bad', 'Production failed: ' + failed);
     }
-    if (!decisionList.children.length) {
-      directorEmpty.style.display = 'block';
-      directorEmpty.textContent = 'Working: decisions and checks appear here as each step finishes.';
-    }
+    if (storyCheck) storyCheck.hidden = !decisionList.children.length;
   }
 
   function formatDims(job) {
@@ -1127,15 +1096,15 @@
     } else {
       durationWarn.hidden = true;
     }
-    renderDirector({ status: 'waiting_approval', brief: brief, director: approval.director, revision_note: approval.revision_note, qc: null }, null);
+    renderStoryCheck({ status: 'waiting_approval', brief: brief, director: approval.director, revision_note: approval.revision_note, qc: null }, null);
     var unmet = approval.unmet_criteria || [];
     unmet.forEach(function (u) {
       addLog('Unmet after review (' + u.scene_id + ' / ' + u.criterion + '): ' + u.detail);
     });
     if (approval.editorial_pass) {
-      addLog('Director review passed.', 'success');
+      addLog('Story check passed.', 'success');
     } else if (unmet.length) {
-      addLog('Director review surfaced ' + unmet.length + ' unmet criteria (shown above); production can still run.', 'warn');
+      addLog('Story check surfaced ' + unmet.length + ' unmet criteria (shown above); production can still run.', 'warn');
     }
     if (approval.revision_note) addLog('Revision note: ' + approval.revision_note);
     addLog('Scene plan ready: ' + lines.length + ' lines with visuals. Review and edit, then approve.', 'success');
@@ -1251,7 +1220,7 @@
     ackProduceBtn.hidden = true;
     produceBtn.hidden = true;
     planEmpty.hidden = false;
-    planEmpty.textContent = 'Production complete. Select a scene to inspect it, or download your video.';
+    planEmpty.textContent = 'Production complete. Tap a scene below to edit it, or download your video.';
     setJobState('done', 'Video ready.');
     setPreviewAspect(job.aspect_ratio || fallbackAspect || '9:16');
     outputVideo.src = job.video;
@@ -1274,10 +1243,8 @@
     rest.textContent = '  ' + metaBits.join(' · ') + '.';
     previewMeta.appendChild(rest);
     previewMeta.hidden = false;
-    qcFull.textContent = JSON.stringify(job.qc, null, 2);
-    qcFull.hidden = false;
     renderStoryboard(job);
-    renderDirector(job, null);
+    renderStoryCheck(job, null);
     if (job.video_stale) addLog('Note: a scene changed after this video was built; the video is stale for that scene.');
     if (job.revision_note) addLog('Revision note: ' + job.revision_note);
     (job.qc && job.qc.decisions || []).forEach(function (entry) {
@@ -1294,7 +1261,7 @@
       if (stageState(job, pair[0]) === 'error') setProgress(pair[0], 'error');
     });
     if (job.scenes && job.scenes.length) renderStoryboard(job);
-    renderDirector(job, job.error || 'production failed');
+    renderStoryCheck(job, job.error || 'production failed');
     currentStep.textContent = 'Production failed.' + formatElapsed(job);
     showPreviewMessage('error', 'error', '<strong>Production failed.</strong><br>' + escapeHtml(job.error || 'production failed') + '<br>Retry re-renders from the stored plan.');
     addLog('Production stopped: ' + (job.error || 'production failed'), 'error');
@@ -1308,7 +1275,7 @@
       if (stageState(job, pair[0]) === 'cancelled') setProgress(pair[0], 'cancelled');
     });
     if (job.scenes && job.scenes.length) renderStoryboard(job);
-    renderDirector(job, job.error || 'production cancelled');
+    renderStoryCheck(job, job.error || 'production cancelled');
     currentStep.textContent = 'Production cancelled.' + formatElapsed(job);
     showPreviewMessage('error', 'cancel', '<strong>Production cancelled.</strong><br>' + escapeHtml(job.error || 'Stopped at a stage boundary.') + '<br>Retry re-renders from the stored plan.');
     addLog('Production cancelled: ' + (job.error || 'stopped at a stage boundary'), 'error');
@@ -1322,7 +1289,7 @@
       if (stageState(job, pair[0]) === 'interrupted') setProgress(pair[0], 'interrupted');
     });
     if (job.scenes && job.scenes.length) renderStoryboard(job);
-    renderDirector(job, job.interrupt_reason || 'production interrupted');
+    renderStoryCheck(job, job.interrupt_reason || 'production interrupted');
     currentStep.textContent = 'Production interrupted by a server restart.' + formatElapsed(job);
     var kept = (job.preserved && job.preserved.length) ? job.preserved.join(', ') : 'no finished files';
     showPreviewMessage('error', 'warning', '<strong>Interrupted by a server restart.</strong><br>' + escapeHtml(job.interrupt_reason || '') + '<br>Kept on disk: ' + escapeHtml(kept) + '.<br>' + escapeHtml(job.must_rerun || 'Retry re-renders from the stored plan.'));
@@ -1376,7 +1343,7 @@
         if (job && job.scenes && job.scenes.length) {
           if (sceneSig(job.scenes) !== boardSig && !editingScene()) renderStoryboard(job);
         }
-        renderDirector(job, null);
+        renderStoryCheck(job, null);
         if (job.status === 'done') {
           showFinishedJob(job, fallbackAspect);
           break;
@@ -1490,7 +1457,7 @@
     resetProgress();
     syncProgressPills(job, null);
     if (job.scenes && job.scenes.length) renderStoryboard(job);
-    renderDirector(job, job.error || job.interrupt_reason || null);
+    renderStoryCheck(job, job.error || job.interrupt_reason || null);
     if (job.status === 'done') {
       showFinishedJob(job);
       addLog('Restored finished production ' + id + (viaRefresh ? ' after a page refresh.' : '.'), 'success');
@@ -1549,7 +1516,6 @@
       clearProblem();
       resetProgress();
       previewMeta.hidden = true;
-      qcFull.hidden = true;
       outputVideo.removeAttribute('src');
       outputVideo.load();
       retryBtn.hidden = true;
@@ -1606,12 +1572,11 @@
     clearProblem();
     resetProgress();
     previewMeta.hidden = true;
-    qcFull.hidden = true;
     outputVideo.removeAttribute('src');
     outputVideo.load();
     setJobState('producing', 'Producing video.');
     showThinking('preparing');
-    renderDirector({ brief: { topic: topic, aspect_ratio: aspect } }, null);
+    renderStoryCheck({ brief: { topic: topic, aspect_ratio: aspect } }, null);
     setPlanLocked(true);
     try {
       var body = { topic: topic, script: plan.lines, visuals: plan.visuals, aspect_ratio: aspect };

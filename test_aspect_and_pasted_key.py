@@ -134,9 +134,8 @@ def _assemble_vfs(aspect):
             mock.patch.object(render, "_run", side_effect=dispatch):
         render.assemble(scenes, imgs, auds, "Topic", tmp,
                         aspect_ratio=aspect)
-    seg_cmds = [c for c in fake.cmds if "seg_" in c[-1]]
-    assert len(seg_cmds) == 2, fake.cmds
-    return [c[c.index("-vf") + 1] for c in seg_cmds]
+    assert len(fake.cmds) == 1, fake.cmds
+    return [fake.cmds[0][fake.cmds[0].index("-filter_complex") + 1]]
 
 
 def check_assemble_crops_never_stretches():

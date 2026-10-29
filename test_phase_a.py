@@ -142,7 +142,7 @@ def check_assemble_failure_fails_hard():
         try:
             render.assemble(scenes, imgs, auds, "Topic", tmp)
         except RuntimeError as e:
-            assert "segment rendering failed for scene" in str(e), e
+            assert "video rendering failed" in str(e), e
         else:
             raise AssertionError(
                 "assemble silently passed a failed ffmpeg segment")
@@ -193,12 +193,12 @@ def check_no_captions_in_assemble():
         "verify_captions still present"
     assert not hasattr(render, "caption_style_for_aspect"), \
         "caption_style_for_aspect still present"
-    seg_cmds = [c for c in seen if "seg_" in c[-1]]
-    assert seg_cmds, seen
-    for cmd in seg_cmds:
-        vf = cmd[cmd.index("-vf") + 1]
-        assert "subtitles" not in vf, (cmd, vf)
-        assert "force_style" not in vf, (cmd, vf)
+    assert seen, "no ffmpeg command recorded"
+    for cmd in seen:
+        fc = cmd[cmd.index("-filter_complex") + 1]
+        assert "subtitles" not in fc, (cmd, fc)
+        assert "force_style" not in fc, (cmd, fc)
+        assert "zoompan" in fc and "xfade" in fc, (cmd, fc)
     print("MOCKED PASS: assembly writes no SRT and burns no subtitles")
 
 

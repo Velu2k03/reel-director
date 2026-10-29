@@ -65,7 +65,7 @@ button, input, textarea { touch-action: manipulation; }
 
 /* Docked regions share exact edges and use internal scrolling. */
 .wrap { width: 100%; max-width: none; height: calc(100dvh - 52px); padding: 0; margin: 0; }
-.workspace { display: grid; width: 100%; height: 100%; min-width: 0; min-height: 0; gap: 0; grid-template-columns: 320px minmax(0, 1fr) 260px; grid-template-rows: minmax(0, 1fr) 190px 28px; grid-template-areas: "brief center inspector" "timeline timeline timeline" "status status status"; }
+.workspace { display: grid; width: 100%; height: 100%; min-width: 0; min-height: 0; gap: 0; grid-template-columns: 320px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 190px 28px; grid-template-areas: "brief center" "timeline timeline" "status status"; }
 .left-dock { grid-area: brief; border-right: 1px solid var(--border); }
 .right-dock { grid-area: inspector; border-left: 1px solid var(--border); }
 .left-dock, .right-dock { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: white; overflow: hidden; }
@@ -269,7 +269,7 @@ body[data-job-state="empty"] .project-divider { display: none; }
 @media (min-width: 761px) and (max-width: 999px) {
   body { overflow: auto; }
   .wrap { height: auto; min-height: calc(100dvh - 52px); }
-  .workspace { height: auto; min-height: calc(100dvh - 52px); grid-template-columns: 250px minmax(0, 1fr); grid-template-rows: 560px 240px 190px 28px; grid-template-areas: "brief center" "inspector center" "timeline timeline" "status status"; }
+  .workspace { height: auto; min-height: calc(100dvh - 52px); grid-template-columns: 250px minmax(0, 1fr); grid-template-rows: 560px 190px 28px; grid-template-areas: "brief center" "timeline timeline" "status status"; }
   .left-dock { border-bottom: 1px solid var(--border); }
   .right-dock { border-left: 0; border-right: 1px solid var(--border); }
   .preview-stage { padding: 18px; }
@@ -514,6 +514,13 @@ input[type="text"], input[type="number"], input[type="password"], textarea { bac
 
 /* No washi tape: it sat in the middle of the preview for no reason. */
 .preview-stage::before { display: none !important; content: none !important; }
+/* Simple 3-step UI: no inspector tabs. Scene editing lives in a
+   strip under the storyboard, shown only for the selected scene. */
+.board-panel { overflow-y: auto; }
+.scene-editor { padding: 12px 14px 16px; border-top: 1px solid var(--border); }
+.scene-editor:empty { display: none; }
+.story-check { margin-top: 18px; }
+.story-check h3 { font-size: 14px; margin: 0 0 6px; }
 /* Keep the Visual direction row on one line in the 320px panel. */
 .style-settings summary { white-space: nowrap; }
 .look-label { flex-shrink: 0; }
